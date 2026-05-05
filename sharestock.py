@@ -13,14 +13,13 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 import sys, os, subprocess, urllib.request, shutil, tempfile
 
-VERSION       = 1
+VERSION       = 2
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
 SCRIPT_NAME   = "sharestock.py"
 
-_RAW = (f"https://raw.githubusercontent.com/"
-        f"{GITHUB_USER}/{GITHUB_REPO}/{GITHUB_BRANCH}/{SCRIPT_NAME}")
+_RAW = f"https://github.com/{GITHUB_USER}/{GITHUB_REPO}/releases/latest/download/fbc-suite.exe"
 _VER = (f"https://raw.githubusercontent.com/"
         f"{GITHUB_USER}/{GITHUB_REPO}/{GITHUB_BRANCH}/version.txt")
 
