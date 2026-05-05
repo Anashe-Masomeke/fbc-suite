@@ -13,7 +13,7 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 import sys, os, subprocess, urllib.request, shutil, tempfile
 
-VERSION       = 3
+VERSION       = 4
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
@@ -199,19 +199,25 @@ def transform_rows(raw_rows):
         })
     return out,now,tickets
 
-def generate_csv(rows,out_dir,label):
-    label=label.upper()
-    path = os.path.join(out_dir, f"ExportExecutedOrders_{label}_{stamp()}.csv")
-    with open(path,"w",newline="") as f:
-        w=csv.DictWriter(f,fieldnames=EO_HEADERS); w.writeheader()
-        for r in rows: w.writerow({h:r.get(h,"") for h in EO_HEADERS})
+def generate_csv(rows, out_dir, label):
+    label = label.upper()
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = os.path.join(
+        out_dir,
+        f"ExportExecutedOrders_{label}_{ts}.csv"
+    )
+    with open(path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=EO_HEADERS)
+        w.writeheader()
+        for r in rows:
+            w.writerow({h: r.get(h, "") for h in EO_HEADERS})
     return path
 
 def generate_matched_excel(source_path,raw_rows,out_dir):
     exch=get_exchange(raw_rows[0].get("Market","")) if raw_rows else ""
     label="VFEX" if exch=="VFEX" else "ZSE"
     ext=os.path.splitext(source_path)[1] if source_path else ".xlsx"
-    dest=os.path.join(out_dir,f"MATCHED_TRADES_{label}{ext}")
+    dest=os.path.join(out_dir,f"MATCHED TRADES, {label}{ext}")
     _shutil.copy2(source_path,dest); return dest
 
 def generate_pdf(raw_rows,raw_headers,out_dir):
@@ -219,7 +225,7 @@ def generate_pdf(raw_rows,raw_headers,out_dir):
     from fpdf import FPDF
     exch=get_exchange(raw_rows[0].get("Market","")) if raw_rows else ""
     label="VFEX" if exch=="VFEX" else "ZSE"
-    path=os.path.join(out_dir,f"MATCHED_TRADES_{label}.pdf")
+    path=os.path.join(out_dir,f"MATCHED TRADES, {label}.pdf")
     col_chars=[]
     for h in raw_headers:
         mx=len(str(h))
