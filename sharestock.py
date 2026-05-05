@@ -297,8 +297,8 @@ CUSTODIAN_ROUTING = {
 CUSTODIAN_BODY_SINGLE = "Good day,\r\n\r\nKindly find attached today's deal note.\r\n\r\nRegards,\r\nAnashe."
 CUSTODIAN_BODY_MULTI  = "Good day,\r\n\r\nKindly find attached today's deal notes.\r\n\r\nRegards,\r\nAnashe."
 
-CLIENT_BODY_SINGLE = "Good day {client},\r\n\r\nPlease find attached your deal note for today's transaction.\r\n\r\nRegards,\r\nAnashe."
-CLIENT_BODY_MULTI  = "Good day {client},\r\n\r\nPlease find attached your deal notes for today's transactions.\r\n\r\nRegards,\r\nAnashe."
+CLIENT_BODY_SINGLE = "Dear {client},\r\n\r\nPlease find attached your deal note for today's transaction.\r\n\r\nRegards,\r\nAnashe."
+CLIENT_BODY_MULTI  = "Dear {client},\r\n\r\nPlease find attached your deal notes for today's transactions.\r\n\r\nRegards,\r\nAnashe."
 
 CLIENT_CC = _FBC_CC
 
