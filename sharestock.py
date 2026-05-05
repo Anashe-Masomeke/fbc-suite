@@ -14,10 +14,10 @@ Requirements:
 import sys, os, subprocess, urllib.request, shutil, tempfile
 
 VERSION       = 1
-GITHUB_USER   = "YOUR_GITHUB_USERNAME"
-GITHUB_REPO   = "YOUR_REPO_NAME"
+GITHUB_USER   = "Anashe-Masomeke"
+GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
-SCRIPT_NAME   = "fbc_suite.py"
+SCRIPT_NAME   = "sharestock.py"
 
 _RAW = (f"https://raw.githubusercontent.com/"
         f"{GITHUB_USER}/{GITHUB_REPO}/{GITHUB_BRANCH}/{SCRIPT_NAME}")
