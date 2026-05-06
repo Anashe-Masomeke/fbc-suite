@@ -13,7 +13,7 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 import sys, os, subprocess, urllib.request, shutil, tempfile
 
-VERSION       = 4
+VERSION       = 5
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
@@ -375,84 +375,180 @@ def open_outlook(to_list,cc_list,subject,body,attachments):
 class ContactsDialog(tk.Toplevel):
     def __init__(self,parent,contacts,on_save):
         super().__init__(parent)
-        self.title("Manage Client Contacts"); self.geometry("680x500")
+        self.title("Manage Client Contacts"); self.geometry("740x560")
         self.configure(bg=BG); self.contacts=dict(contacts)
-        self.on_save=on_save; self.grab_set(); self._build()
+        self.on_save=on_save; self._current_name=None
+        self.grab_set(); self._build()
 
     def _build(self):
         hdr=tk.Frame(self,bg=FBC_DARK,pady=10,padx=14); hdr.pack(fill="x")
-        tk.Label(hdr,text="Client Contacts",bg=FBC_DARK,fg=WHITE,
+        tk.Label(hdr,text="👥  Manage Client Contacts",bg=FBC_DARK,fg=WHITE,
                  font=("Segoe UI",11,"bold")).pack(side="left")
+        tk.Label(hdr,text=f"  {len(self.contacts)} clients saved",bg=FBC_DARK,fg="#90CAF9",
+                 font=("Segoe UI",9)).pack(side="left",padx=8)
+
         body=tk.Frame(self,bg=BG); body.pack(fill="both",expand=True,padx=12,pady=10)
+
+        # ── LEFT: search + list ──────────────────────────────────────────
         left=tk.Frame(body,bg=WHITE,relief="flat",bd=1); left.pack(side="left",fill="y",padx=(0,8))
+
         tk.Label(left,text="Clients",bg=FBC_MID,fg=WHITE,
                  font=("Segoe UI",9,"bold"),pady=6,padx=8).pack(fill="x")
-        self.listbox=tk.Listbox(left,width=26,font=("Segoe UI",9),
-                                selectbackground=FBC_MID,activestyle="none")
-        self.listbox.pack(fill="both",expand=True,padx=4,pady=4)
+
+        # search bar
+        s_frame=tk.Frame(left,bg=WHITE,padx=4,pady=4); s_frame.pack(fill="x")
+        tk.Label(s_frame,text="🔍",bg=WHITE,font=("Segoe UI",10)).pack(side="left")
+        self.search_var=tk.StringVar()
+        self.search_var.trace_add("write",lambda *_:self._filter_list())
+        search_entry=tk.Entry(s_frame,textvariable=self.search_var,
+                              font=("Segoe UI",9),relief="flat",bd=0,
+                              bg="#F0F4F8",width=20)
+        search_entry.pack(side="left",fill="x",expand=True,padx=4)
+        tk.Button(s_frame,text="✕",command=lambda:(self.search_var.set(""),search_entry.focus()),
+                  bg=WHITE,fg="#8096B0",relief="flat",font=("Segoe UI",8),
+                  cursor="hand2",padx=2).pack(side="left")
+
+        # listbox
+        lb_frame=tk.Frame(left,bg=WHITE); lb_frame.pack(fill="both",expand=True,padx=4,pady=(0,4))
+        self.listbox=tk.Listbox(lb_frame,width=26,font=("Segoe UI",9),
+                                selectbackground=FBC_MID,activestyle="none",
+                                relief="flat",bd=0)
+        lb_sb=ttk.Scrollbar(lb_frame,orient="vertical",command=self.listbox.yview)
+        self.listbox.configure(yscrollcommand=lb_sb.set)
+        self.listbox.pack(side="left",fill="both",expand=True)
+        lb_sb.pack(side="right",fill="y")
         self.listbox.bind("<<ListboxSelect>>",self._on_select)
-        br=tk.Frame(left,bg=WHITE); br.pack(fill="x",padx=4,pady=(0,4))
+
+        # add / delete
+        br=tk.Frame(left,bg=WHITE); br.pack(fill="x",padx=4,pady=(0,6))
         tk.Button(br,text="+ Add",command=self._add,bg=GREEN_DARK,fg=WHITE,
                   relief="flat",font=("Segoe UI",8,"bold"),cursor="hand2").pack(side="left",padx=(0,4))
         tk.Button(br,text="✕ Delete",command=self._delete,bg=RED_DARK,fg=WHITE,
                   relief="flat",font=("Segoe UI",8,"bold"),cursor="hand2").pack(side="left")
+
+        # ── RIGHT: detail panel ──────────────────────────────────────────
         right=tk.Frame(body,bg=WHITE,relief="flat",bd=1); right.pack(side="left",fill="both",expand=True)
         tk.Label(right,text="Contact Details",bg=FBC_MID,fg=WHITE,
                  font=("Segoe UI",9,"bold"),pady=6,padx=8).pack(fill="x")
-        self.detail=tk.Frame(right,bg=WHITE); self.detail.pack(fill="both",expand=True,padx=12,pady=10)
+        self.detail=tk.Frame(right,bg=WHITE); self.detail.pack(fill="both",expand=True,padx=14,pady=12)
         self._show_detail(None)
+
+        # ── bottom bar ───────────────────────────────────────────────────
         bot=tk.Frame(self,bg=BG); bot.pack(fill="x",padx=12,pady=(0,10))
         tk.Button(bot,text="💾  Save & Close",command=self._save,bg=FBC_MID,fg=WHITE,
                   font=("Segoe UI",10,"bold"),relief="flat",padx=16,pady=8,cursor="hand2").pack(side="right")
-        self._refresh_list()
+
+        self._filter_list()
+
+    # ── list helpers ─────────────────────────────────────────────────────────
+    def _filter_list(self):
+        term=self.search_var.get().strip().upper()
+        self.listbox.delete(0,tk.END)
+        for n in sorted(self.contacts):
+            if term in n.upper():
+                self.listbox.insert(tk.END,n)
+        # reselect current if still visible
+        if self._current_name:
+            for i in range(self.listbox.size()):
+                if self.listbox.get(i)==self._current_name:
+                    self.listbox.selection_set(i); break
 
     def _refresh_list(self):
-        self.listbox.delete(0,tk.END)
-        for n in sorted(self.contacts): self.listbox.insert(tk.END,n)
+        self._filter_list()
 
     def _on_select(self,_=None):
         sel=self.listbox.curselection()
-        if sel: self._show_detail(self.listbox.get(sel[0]))
+        if sel:
+            self._current_name=self.listbox.get(sel[0])
+            self._show_detail(self._current_name)
 
     def _show_detail(self,name):
         for w in self.detail.winfo_children(): w.destroy()
         if not name:
-            tk.Label(self.detail,text="Select a client to edit",bg=WHITE,
-                     fg="#607080",font=("Segoe UI",9)).pack(pady=20); return
+            tk.Label(self.detail,text="Select a client on the left\nto view or edit their details.",
+                     bg=WHITE,fg="#8096B0",font=("Segoe UI",9),justify="center").pack(pady=30); return
+
         data=self.contacts.get(name,{"email":""})
-        tk.Label(self.detail,text=f"Client: {name}",bg=WHITE,
-                 fg=FBC_DARK,font=("Segoe UI",10,"bold")).pack(anchor="w",pady=(0,8))
+
+        # ── client name (editable) ──
+        tk.Label(self.detail,text="Client Name:",bg=WHITE,fg="#607080",
+                 font=("Segoe UI",8,"bold")).pack(anchor="w")
+        name_row=tk.Frame(self.detail,bg=WHITE); name_row.pack(fill="x",pady=(2,10))
+        self.entry_name=tk.Entry(name_row,font=("Segoe UI",10),width=34)
+        self.entry_name.insert(0,name)
+        self.entry_name.pack(side="left")
+        tk.Button(name_row,text="✏ Rename",
+                  command=lambda n=name:self._rename(n),
+                  bg=FBC_MID,fg=WHITE,relief="flat",
+                  font=("Segoe UI",8,"bold"),cursor="hand2",
+                  padx=8,pady=4).pack(side="left",padx=6)
+
+        # ── email ──
         tk.Label(self.detail,text="Client Email:",bg=WHITE,fg="#607080",
-                 font=("Segoe UI",9)).pack(anchor="w")
-        self.entry_email=tk.Entry(self.detail,font=("Segoe UI",10),width=40)
-        self.entry_email.insert(0,data.get("email","")); self.entry_email.pack(anchor="w",pady=(2,12))
-        tk.Button(self.detail,text="✔  Apply",command=lambda n=name:self._apply(n),
-                  bg=GREEN_DARK,fg=WHITE,relief="flat",font=("Segoe UI",9,"bold"),
-                  cursor="hand2",padx=10,pady=6).pack(anchor="w")
+                 font=("Segoe UI",8,"bold")).pack(anchor="w")
+        self.entry_email=tk.Entry(self.detail,font=("Segoe UI",10),width=42)
+        self.entry_email.insert(0,data.get("email",""))
+        self.entry_email.pack(anchor="w",pady=(2,4))
+
+        # show current saved email as hint
+        saved=data.get("email","")
+        hint_txt="No email saved yet" if not saved else f"Saved: {saved}"
+        hint_col=RED_DARK if not saved else GREEN_DARK
+        tk.Label(self.detail,text=hint_txt,bg=WHITE,fg=hint_col,
+                 font=("Segoe UI",8)).pack(anchor="w",pady=(0,12))
+
+        tk.Button(self.detail,text="✔  Apply Email",
+                  command=lambda n=name:self._apply(n),
+                  bg=GREEN_DARK,fg=WHITE,relief="flat",
+                  font=("Segoe UI",9,"bold"),cursor="hand2",
+                  padx=12,pady=6).pack(anchor="w")
+
+    def _rename(self,old_name):
+        new_name=self.entry_name.get().strip().upper()
+        if not new_name:
+            messagebox.showwarning("Empty","Name cannot be empty.",parent=self); return
+        if new_name==old_name:
+            messagebox.showinfo("No Change","Name is the same.",parent=self); return
+        if new_name in self.contacts:
+            messagebox.showwarning("Duplicate",f"'{new_name}' already exists.",parent=self); return
+        # rename in dict
+        self.contacts[new_name]=self.contacts.pop(old_name)
+        self._current_name=new_name
+        self._filter_list()
+        self._show_detail(new_name)
+        messagebox.showinfo("Renamed",f"'{old_name}' → '{new_name}'\n\nClick 'Save & Close' to keep this change.",parent=self)
 
     def _apply(self,name):
         self.contacts[name]={"email":self.entry_email.get().strip()}
-        messagebox.showinfo("Saved",f"Saved for {name}.\nClick 'Save & Close' to write to disk.",parent=self)
+        self._show_detail(name)
+        messagebox.showinfo("Saved",f"Email saved for {name}.\nClick 'Save & Close' to write to disk.",parent=self)
 
     def _add(self):
         dlg=tk.Toplevel(self); dlg.title("Add Client")
-        dlg.geometry("320x110"); dlg.configure(bg=BG); dlg.grab_set()
-        tk.Label(dlg,text="Client name (as in filename):",bg=BG,font=("Segoe UI",9)).pack(pady=(14,4))
-        e=tk.Entry(dlg,font=("Segoe UI",10),width=32); e.pack()
+        dlg.geometry("340x130"); dlg.configure(bg=BG); dlg.grab_set()
+        tk.Label(dlg,text="Client name (as it appears in the filename):",
+                 bg=BG,font=("Segoe UI",9)).pack(pady=(14,4),padx=12)
+        e=tk.Entry(dlg,font=("Segoe UI",10),width=34); e.pack(padx=12); e.focus()
         def ok():
             n=e.get().strip().upper()
-            if n:
-                self.contacts[n]={"email":""}
-                self._refresh_list(); dlg.destroy(); self._show_detail(n)
+            if not n: return
+            if n in self.contacts:
+                messagebox.showwarning("Duplicate",f"'{n}' already exists.",parent=dlg); return
+            self.contacts[n]={"email":""}
+            self._current_name=n
+            self._filter_list(); dlg.destroy(); self._show_detail(n)
+        e.bind("<Return>",lambda _:ok())
         tk.Button(dlg,text="Add",command=ok,bg=FBC_MID,fg=WHITE,
-                  relief="flat",font=("Segoe UI",9,"bold"),cursor="hand2").pack(pady=8)
+                  relief="flat",font=("Segoe UI",9,"bold"),cursor="hand2",
+                  padx=12,pady=6).pack(pady=10)
 
     def _delete(self):
         sel=self.listbox.curselection()
         if not sel: return
         name=self.listbox.get(sel[0])
-        if messagebox.askyesno("Delete",f"Delete '{name}'?",parent=self):
-            self.contacts.pop(name,None); self._refresh_list(); self._show_detail(None)
+        if messagebox.askyesno("Delete",f"Delete '{name}' from contacts?",parent=self):
+            self.contacts.pop(name,None); self._current_name=None
+            self._filter_list(); self._show_detail(None)
 
     def _save(self):
         save_contacts(self.contacts); self.on_save(self.contacts); self.destroy()
@@ -817,15 +913,36 @@ class EmailerPage(tk.Frame):
                   bg=FBC_DARK,fg=WHITE,relief="flat",font=("Segoe UI",9,"bold"),
                   cursor="hand2",padx=10,pady=4).pack(side="right",padx=4)
 
-        # folder picker
+        # ── upload panel ─────────────────────────────────────────────────────
         fp=tk.Frame(self,bg=WHITE,padx=16,pady=12); fp.pack(fill="x",padx=16,pady=(12,0))
-        tk.Button(fp,text="📂  Choose Deal Notes Folder",command=self._pick_folder,
+
+        # row 1: upload buttons
+        btn_row=tk.Frame(fp,bg=WHITE); btn_row.pack(fill="x")
+        tk.Button(btn_row,text="📂  Choose Deal Notes Folder",command=self._pick_folder,
                   bg=FBC_MID,fg=WHITE,relief="flat",font=("Segoe UI",10,"bold"),
                   cursor="hand2",padx=14,pady=8).pack(side="left")
-        self.lbl_folder=tk.Label(fp,text="No folder selected",bg=WHITE,fg="#607080",font=("Segoe UI",9))
-        self.lbl_folder.pack(side="left",padx=10)
-        self.lbl_found=tk.Label(fp,text="",bg=WHITE,fg=FBC_MID,font=("Consolas",9))
-        self.lbl_found.pack(side="left",padx=6)
+
+        tk.Label(btn_row,text="  or  ",bg=WHITE,fg="#8096B0",
+                 font=("Segoe UI",9)).pack(side="left")
+
+        tk.Button(btn_row,text="📄  Select Individual Deal Note(s)",command=self._pick_individual_files,
+                  bg="#4051B5",fg=WHITE,relief="flat",font=("Segoe UI",10,"bold"),
+                  cursor="hand2",padx=14,pady=8).pack(side="left")
+
+        # clear all button
+        self.btn_clear=tk.Button(btn_row,text="🗑  Clear All Uploads",command=self._clear_uploads,
+                  bg=RED_DARK,fg=WHITE,relief="flat",font=("Segoe UI",9,"bold"),
+                  cursor="hand2",padx=10,pady=8,state="disabled")
+        self.btn_clear.pack(side="right")
+
+        # row 2: status labels
+        info_row=tk.Frame(fp,bg=WHITE); info_row.pack(fill="x",pady=(6,0))
+        self.lbl_folder=tk.Label(info_row,text="No files loaded",bg=WHITE,fg="#8096B0",font=("Segoe UI",9))
+        self.lbl_folder.pack(side="left")
+        self.lbl_found=tk.Label(info_row,text="",bg=WHITE,fg=FBC_MID,font=("Consolas",9))
+        self.lbl_found.pack(side="left",padx=10)
+        self.lbl_file_list=tk.Label(info_row,text="",bg=WHITE,fg="#607080",font=("Segoe UI",8))
+        self.lbl_file_list.pack(side="left")
 
         # tabs
         style=ttk.Style()
@@ -1045,12 +1162,57 @@ class EmailerPage(tk.Frame):
         pdfs=sorted(f for f in os.listdir(folder) if f.lower().endswith(".pdf"))
         if not pdfs: messagebox.showwarning("No PDFs","No PDF files found in that folder."); return
         self.pdf_folder=folder
-        self.lbl_folder.config(text=os.path.basename(folder),fg=FBC_DARK)
+        self.lbl_folder.config(text=f"📂  {os.path.basename(folder)}",fg=FBC_DARK)
         self.lbl_found.config(text=f"Scanning {len(pdfs)} PDF(s)…")
+        self.lbl_file_list.config(text="")
+        self._disable_send_buttons()
+        self.btn_clear.config(state="normal")
+        threading.Thread(target=self._scan,args=(folder,pdfs),daemon=True).start()
+
+    def _pick_individual_files(self):
+        paths=filedialog.askopenfilenames(
+            title="Select Deal Note PDF(s)",
+            filetypes=[("PDF files","*.pdf"),("All files","*.*")])
+        if not paths: return
+        pdf_paths=list(paths)
+        # add to existing items (don't wipe, let user accumulate)
+        already={it["path"] for it in self.deal_items}
+        new_paths=[p for p in pdf_paths if p not in already]
+        if not new_paths:
+            messagebox.showinfo("No New Files","All selected files are already loaded."); return
+        self.lbl_found.config(text=f"Scanning {len(new_paths)} new PDF(s)…")
+        self.btn_clear.config(state="normal")
+        # show short names
+        names=", ".join(os.path.basename(p) for p in new_paths[:3])
+        if len(new_paths)>3: names+=f" +{len(new_paths)-3} more"
+        self.lbl_folder.config(text=f"📄  {names}",fg=FBC_DARK)
+        threading.Thread(target=self._scan_files,args=(new_paths,),daemon=True).start()
+
+    def _clear_uploads(self):
+        if not self.deal_items: return
+        if not messagebox.askyesno("Clear All Uploads",
+            f"Remove all {len(self.deal_items)} loaded deal note(s) and start fresh?\n\nThis does NOT delete the files from disk."):
+            return
+        self.deal_items=[]
+        self.pdf_folder=""
+        self.lbl_folder.config(text="No files loaded",fg="#8096B0")
+        self.lbl_found.config(text="")
+        self.lbl_file_list.config(text="")
+        self.btn_clear.config(state="disabled")
+        self._disable_send_buttons()
+        # clear rendered tabs
+        for w in self.cust_body.winfo_children(): w.destroy()
+        for w in self.client_body.winfo_children(): w.destroy()
+        self.lbl_cust_hint.config(text="Load files above to begin.",fg="#607080")
+        self.lbl_client_hint.config(text="Load files above to begin.",fg="#607080")
+        self.btn_send_all_cust.config(state="disabled",text="✉  Send ALL Custodian Emails")
+        self.btn_send_all_client.config(state="disabled",text="✉  Send ALL Client Emails")
+        self.btn_send_everything.config(state="disabled")
+
+    def _disable_send_buttons(self):
         self.btn_send_all_cust.config(state="disabled")
         self.btn_send_all_client.config(state="disabled")
         self.btn_send_everything.config(state="disabled")
-        threading.Thread(target=self._scan,args=(folder,pdfs),daemon=True).start()
 
     def _scan(self,folder,pdfs):
         items=[]
@@ -1063,9 +1225,26 @@ class EmailerPage(tk.Frame):
                 "deal_info":parse_deal_info_from_pdf(path),"sent":False,
             })
         self.deal_items=items
+        self._after_scan(len(items))
+
+    def _scan_files(self,paths):
+        """Scan individually selected files and append to existing deal_items."""
+        new_items=[]
+        for path in paths:
+            fname=os.path.basename(path)
+            new_items.append({
+                "fname":fname,"path":path,
+                "client":parse_client_name_from_filename(fname),
+                "custodian":parse_custodian_from_pdf(path) or "UNKNOWN",
+                "deal_info":parse_deal_info_from_pdf(path),"sent":False,
+            })
+        self.deal_items.extend(new_items)
+        self._after_scan(len(self.deal_items))
+
+    def _after_scan(self,total):
         self.after(0,self._render_custodian_tab)
         self.after(0,self._render_client_tab)
-        self.after(0,lambda:self.lbl_found.config(text=f"✅  {len(pdfs)} PDF(s) loaded"))
+        self.after(0,lambda:self.lbl_found.config(text=f"✅  {total} PDF(s) loaded"))
 
 # ════════════════════════════════════════════════════════════════════════════
 #  MAIN APP SHELL  (sidebar + page switcher)
