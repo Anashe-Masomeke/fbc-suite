@@ -13,7 +13,7 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 import sys, os, subprocess, urllib.request
 
-VERSION       = 6
+VERSION       = 7
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
@@ -63,18 +63,12 @@ def check_and_apply_update():
 
         bat_lines = [
             "@echo off",
-            # Wait for app to fully exit and release file lock
             "ping 127.0.0.1 -n 7 > nul",
-            # Force kill any lingering instance
             f'taskkill /F /IM "{exe_name}" >nul 2>&1',
-            # Extra wait after kill
             "ping 127.0.0.1 -n 4 > nul",
-            # Swap files
             f'move /Y "{current_exe}" "{old_exe_bak}"',
             f'move /Y "{new_exe_tmp}" "{current_exe}"',
-            # Launch updated app
             f'start "" "{current_exe}"',
-            # Cleanup
             "ping 127.0.0.1 -n 3 > nul",
             f'del "{old_exe_bak}"',
             'del "%~f0"',
@@ -350,10 +344,31 @@ CLIENT_BODY_MULTI  = "Dear {client},\r\n\r\nPlease find attached your deal notes
 
 CLIENT_CC = _FBC_CC
 
+def _name_tokens(name):
+    """Return a frozenset of uppercase words — order-independent name matching."""
+    return frozenset(w.strip() for w in name.upper().split() if w.strip())
+
+def _names_match(a, b):
+    """True if two names share all tokens regardless of order.
+    e.g. 'MAKWASHA TANYARADZWA' matches 'TANYARADZWA MAKWASHA'."""
+    ta, tb = _name_tokens(a), _name_tokens(b)
+    if not ta or not tb:
+        return False
+    # Exact token-set match  OR  one is a subset of the other (handles short saved names)
+    return ta == tb or ta.issubset(tb) or tb.issubset(ta)
+
 def find_contact(contacts, client_name):
-    if client_name in contacts: return contacts[client_name]
-    for saved,data in contacts.items():
-        if client_name.startswith(saved) or saved.startswith(client_name): return data
+    # 1. Exact match
+    if client_name in contacts:
+        return contacts[client_name]
+    # 2. Order-independent token match (handles surname-first filenames)
+    for saved, data in contacts.items():
+        if _names_match(client_name, saved):
+            return data
+    # 3. Prefix fallback (legacy)
+    for saved, data in contacts.items():
+        if client_name.startswith(saved) or saved.startswith(client_name):
+            return data
     return {}
 
 def load_contacts():
@@ -1103,16 +1118,26 @@ class EmailerPage(tk.Frame):
     def _client_groups(self):
         groups={}
         for item in self.deal_items:
-            contact=find_contact(self.contacts,item["client"])
-            email=contact.get("email","")
-            key=item["client"]
+            contact = find_contact(self.contacts, item["client"])
+            email   = contact.get("email", "")
+            # Resolve the canonical key: prefer the saved contact name so that
+            # "MAKWASHA TANYARADZWA" (from filename) maps to "TANYARADZWA MAKWASHA"
+            # (as saved in contacts), keeping the UI consistent.
+            key = item["client"]
             for saved in self.contacts:
-                if item["client"].startswith(saved) or saved.startswith(item["client"]):
-                    key=saved; break
-            if key not in groups: groups[key]={"email":email,"items":[],"sent":False}
+                if _names_match(item["client"], saved):
+                    key = saved; break
+            # Legacy prefix fallback
+            if key == item["client"]:
+                for saved in self.contacts:
+                    if item["client"].startswith(saved) or saved.startswith(item["client"]):
+                        key = saved; break
+            if key not in groups:
+                groups[key] = {"email": email, "items": [], "sent": False}
             groups[key]["items"].append(item)
-            groups[key]["email"]=groups[key]["email"] or email
-        for g in groups.values(): g["status"]="ready" if g["email"] else "missing"
+            groups[key]["email"] = groups[key]["email"] or email
+        for g in groups.values():
+            g["status"] = "ready" if g["email"] else "missing"
         return groups
 
     def _render_client_tab(self):
