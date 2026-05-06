@@ -11,15 +11,15 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 #  AUTO-UPDATE
 # ════════════════════════════════════════════════════════════════════════════
-import sys, os, subprocess, urllib.request, shutil, tempfile
+import sys, os, subprocess, urllib.request
 
-VERSION       = 5
+VERSION       = 6
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
-SCRIPT_NAME   = "sharestock.py"
+EXE_NAME      = "fbc-suite.exe"
 
-_RAW = f"https://github.com/{GITHUB_USER}/{GITHUB_REPO}/releases/latest/download/fbc-suite.exe"
+_EXE = f"https://github.com/{GITHUB_USER}/{GITHUB_REPO}/releases/latest/download/{EXE_NAME}"
 _VER = (f"https://raw.githubusercontent.com/"
         f"{GITHUB_USER}/{GITHUB_REPO}/{GITHUB_BRANCH}/version.txt")
 
@@ -44,19 +44,62 @@ def check_and_apply_update():
     root.destroy()
     if not ok:
         return
-    tmp = tempfile.mktemp(suffix=".py")
+
+    current_exe = os.path.abspath(sys.argv[0])
+    exe_dir     = os.path.dirname(current_exe)
+    exe_name    = os.path.basename(current_exe)
+    new_exe_tmp = os.path.join(exe_dir, "_fbc_update_new.exe")
+    old_exe_bak = os.path.join(exe_dir, "_fbc_update_old.exe")
+    bat_path    = os.path.join(exe_dir, "_fbc_updater.bat")
+
+    root2 = tk.Tk(); root2.withdraw()
+    messagebox.showinfo("Downloading Update",
+        "Downloading update — please wait.\n\nThe app will restart automatically.",
+        parent=root2)
+    root2.destroy()
+
     try:
-        with urllib.request.urlopen(_RAW, timeout=15) as r:
-            open(tmp,"wb").write(r.read())
-        shutil.move(tmp, os.path.abspath(sys.argv[0]))
-        subprocess.Popen([sys.executable, os.path.abspath(sys.argv[0])] + sys.argv[1:])
+        urllib.request.urlretrieve(_EXE, new_exe_tmp)
+
+        bat_lines = [
+            "@echo off",
+            # Wait for app to fully exit and release file lock
+            "ping 127.0.0.1 -n 7 > nul",
+            # Force kill any lingering instance
+            f'taskkill /F /IM "{exe_name}" >nul 2>&1',
+            # Extra wait after kill
+            "ping 127.0.0.1 -n 4 > nul",
+            # Swap files
+            f'move /Y "{current_exe}" "{old_exe_bak}"',
+            f'move /Y "{new_exe_tmp}" "{current_exe}"',
+            # Launch updated app
+            f'start "" "{current_exe}"',
+            # Cleanup
+            "ping 127.0.0.1 -n 3 > nul",
+            f'del "{old_exe_bak}"',
+            'del "%~f0"',
+        ]
+        with open(bat_path, "w") as f:
+            f.write("\n".join(bat_lines) + "\n")
+
+        subprocess.Popen(
+            ["cmd.exe", "/c", bat_path],
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            close_fds=True
+        )
         sys.exit(0)
+
     except Exception as e:
-        import tkinter as tk
-        from tkinter import messagebox
-        root = tk.Tk(); root.withdraw()
-        messagebox.showerror("Update Failed", str(e))
-        root.destroy()
+        for fp in [new_exe_tmp, bat_path]:
+            try: os.remove(fp)
+            except Exception: pass
+        root3 = tk.Tk(); root3.withdraw()
+        messagebox.showerror("Update Failed",
+            f"Could not download update:\n\n{e}\n\n"
+            "Please download manually from:\n"
+            f"github.com/{GITHUB_USER}/{GITHUB_REPO}/releases/latest")
+        root3.destroy()
+
 
 # ════════════════════════════════════════════════════════════════════════════
 #  IMPORTS
