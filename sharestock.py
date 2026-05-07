@@ -13,7 +13,7 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 import sys, os, subprocess, urllib.request
 
-VERSION       = 8
+VERSION       = 9
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
@@ -480,13 +480,68 @@ def save_contacts(data):
     with open(CONTACTS_FILE,"w") as f: json.dump(data,f,indent=2)
 
 def parse_client_name_from_filename(fname):
-    base=os.path.splitext(fname)[0]
-    base=re.sub(r'_+\d+_*$','',base)
-    base=base.replace("_"," ").strip()
-    base=re.sub(r'\s*\(\d+\)\s*$','',base)
-    base=re.sub(r'[,\.]\s*.*$','',base)
-    base=re.sub(r'\s+\d+.*$','',base)
+    base = os.path.splitext(fname)[0]       # strip .pdf
+    base = base.replace("_", " ").strip()   # underscores to spaces
+    # Remove trailing duplicate markers like (1), (2), (10)
+    base = re.sub(r'\s*\(\d+\)\s*$', '', base)
+    # Remove trailing timestamp numbers e.g. _20240501
+    base = re.sub(r'\s*_\d{6,}\s*$', '', base)
+    # Remove trailing amount+ticker e.g. ", 102,500 FBC" or ", 67,700 TSL"
+    base = re.sub(r',\s*[\d,]+\s+[A-Z]{2,6}\.?\s*$', '', base)
+    # Remove trailing standalone long number e.g. "JOHN SMITH 20240501"
+    base = re.sub(r'\s+\d{6,}\s*$', '', base)
     return base.strip().upper()
+
+def parse_client_name_from_pdf(pdf_path):
+    """
+    Extract client name from inside the deal note PDF.
+
+    Layout of FBC deal notes:
+        Fiscal Tax Invoice          ← heading
+        IMARA ASSET MGMT            ← CLIENT NAME (this is what we want)
+        First Floor Block 2         ← address starts here
+        Tendeseka Office Park
+        ...
+
+    Strategy: Find text between "Fiscal Tax Invoice" and "First Floor".
+    The client name is the non-empty line(s) between these two markers.
+    """
+    try:
+        import fitz
+        doc  = fitz.open(pdf_path)
+        text = doc[0].get_text()
+        doc.close()
+
+        # The client name sits between "Fiscal Tax Invoice" and "First Floor"
+        # Extract everything between those two anchors
+        m = re.search(
+            r'Fiscal Tax Invoice\s*\n+\s*([\s\S]+?)\s*\nFirst Floor',
+            text, re.IGNORECASE)
+        if m:
+            # May be multiple lines — join them, strip blanks
+            raw = m.group(1)
+            lines = [l.strip() for l in raw.split('\n') if l.strip()]
+            # Take only lines that look like a name (letters/spaces, no digits-only lines)
+            name_lines = []
+            for line in lines:
+                upper = line.upper()
+                # Skip lines that are clearly not names
+                if any(skip in upper for skip in [
+                    'FBC SECURITIES', 'FISCAL TAX', 'CONTRACT NOTE',
+                    'INVOICE', 'DEAL DATE', 'DEAL NUMBER', 'CSD CODE',
+                    'CUSTODIAL', 'EXCHANGE', 'SETTLEMENT', 'VAT:', 'TEL:',
+                    '76 S.', 'VERIFICATION', 'DEVICE', 'HARARE'
+                ]):
+                    continue
+                # Must have at least 2 characters and contain letters
+                if len(upper) >= 2 and re.search(r'[A-Z]', upper):
+                    name_lines.append(upper)
+            if name_lines:
+                return ' '.join(name_lines)
+
+    except Exception:
+        pass
+    return None
 
 def parse_custodian_from_pdf(pdf_path):
     try:
@@ -1465,29 +1520,31 @@ class EmailerPage(tk.Frame):
         items=[]
         for fname in pdfs:
             path=os.path.join(folder,fname)
+            # Try PDF first (catches cases where filename doesn't match client name)
+            # Fall back to filename which is always reliable
+            client = parse_client_name_from_pdf(path) or parse_client_name_from_filename(fname)
             items.append({
                 "fname":fname,"path":path,
-                "client":parse_client_name_from_filename(fname),
+                "client":client,
                 "custodian":parse_custodian_from_pdf(path) or "UNKNOWN",
                 "deal_info":parse_deal_info_from_pdf(path),"sent":False,
             })
         self.deal_items=items
         self._after_scan(len(items))
-
     def _scan_files(self,paths):
         """Scan individually selected files and append to existing deal_items."""
         new_items=[]
         for path in paths:
             fname=os.path.basename(path)
+            client = parse_client_name_from_pdf(path) or parse_client_name_from_filename(fname)
             new_items.append({
                 "fname":fname,"path":path,
-                "client":parse_client_name_from_filename(fname),
+                "client":client,
                 "custodian":parse_custodian_from_pdf(path) or "UNKNOWN",
                 "deal_info":parse_deal_info_from_pdf(path),"sent":False,
             })
         self.deal_items.extend(new_items)
         self._after_scan(len(self.deal_items))
-
     def _after_scan(self,total):
         self.after(0,self._render_custodian_tab)
         self.after(0,self._render_client_tab)
