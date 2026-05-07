@@ -5,7 +5,7 @@ FBC Suite — Combined Desktop App
   ✉   Deal Note Email Automator    (Tab 2)
 
 Requirements:
-    pip install pandas openpyxl fpdf2 pywin32 pymupdf
+    pip install pandas openpyxl fpdf2 pywin32 pymupdf gspread google-auth
 """
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -13,7 +13,7 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 import sys, os, subprocess, urllib.request
 
-VERSION       = 7
+VERSION       = 8
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
@@ -304,6 +304,90 @@ def open_sarestock_outlook(file_paths):
 #  ── EMAILER LOGIC ──────────────────────────────────────────────────────────
 # ════════════════════════════════════════════════════════════════════════════
 CONTACTS_FILE    = os.path.join(os.path.expanduser("~"),".fbc_dealnote_contacts.json")
+
+# ════════════════════════════════════════════════════════════════════════════
+#  GOOGLE SHEETS SYNC
+#  Sheet ID is read from a small config file so you only set it once.
+#  Setup: pip install gspread google-auth
+#         Then run the app and click "⚙ Setup Sync" to enter your Sheet ID.
+# ════════════════════════════════════════════════════════════════════════════
+SYNC_CONFIG_FILE = os.path.join(os.path.expanduser("~"), ".fbc_sync_config.json")
+SHEET_WORKSHEET  = "Contacts"   # name of the tab inside the Google Sheet
+
+def _load_sync_config():
+    try:
+        with open(SYNC_CONFIG_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return {"sheet_id": "", "service_account_path": ""}
+
+def _save_sync_config(cfg):
+    with open(SYNC_CONFIG_FILE, "w") as f:
+        json.dump(cfg, f, indent=2)
+
+def _get_gsheet():
+    """Return the worksheet object or None if not configured."""
+    try:
+        import gspread
+        from google.oauth2.service_account import Credentials
+    except ImportError:
+        return None, "gspread not installed. Run: pip install gspread google-auth"
+    cfg = _load_sync_config()
+    sa_path = cfg.get("service_account_path", "")
+    sheet_id = cfg.get("sheet_id", "")
+    if not sa_path or not sheet_id:
+        return None, "sync_not_configured"
+    if not os.path.exists(sa_path):
+        return None, f"Service account file not found:\n{sa_path}"
+    try:
+        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+        creds  = Credentials.from_service_account_file(sa_path, scopes=scopes)
+        gc     = gspread.authorize(creds)
+        sh     = gc.open_by_key(sheet_id)
+        try:
+            ws = sh.worksheet(SHEET_WORKSHEET)
+        except Exception:
+            ws = sh.add_worksheet(title=SHEET_WORKSHEET, rows=500, cols=2)
+            ws.append_row(["Name", "Email"])
+        return ws, None
+    except Exception as e:
+        return None, str(e)
+
+def push_contacts_to_sheet(contacts):
+    """Upload all contacts to Google Sheet (overwrites). Returns (ok, msg)."""
+    ws, err = _get_gsheet()
+    if ws is None:
+        return False, err
+    try:
+        rows = [["Name", "Email"]]
+        for name, data in sorted(contacts.items()):
+            rows.append([name, data.get("email", "")])
+        ws.clear()
+        ws.update("A1", rows)
+        return True, f"Synced {len(contacts)} contacts to Google Sheets"
+    except Exception as e:
+        return False, str(e)
+
+def pull_contacts_from_sheet():
+    """Download contacts from Google Sheet. Returns (contacts_dict, msg)."""
+    ws, err = _get_gsheet()
+    if ws is None:
+        return None, err
+    try:
+        all_rows = ws.get_all_values()
+        if not all_rows:
+            return {}, "Sheet is empty"
+        # skip header row
+        data_rows = all_rows[1:] if all_rows[0] == ["Name", "Email"] else all_rows
+        contacts = {}
+        for row in data_rows:
+            if len(row) >= 1 and row[0].strip():
+                name  = row[0].strip().upper()
+                email = row[1].strip() if len(row) > 1 else ""
+                contacts[name] = {"email": email}
+        return contacts, f"Loaded {len(contacts)} contacts from Google Sheets"
+    except Exception as e:
+        return None, str(e)
 KNOWN_CUSTODIANS = ["FBCZSEZW","CBZCZWHX","STINZWVX","CBCZSEZW","FBCSZWVX"]
 
 CUSTODIAN_PREFIX_MAP = [
@@ -372,9 +456,25 @@ def find_contact(contacts, client_name):
     return {}
 
 def load_contacts():
+    """Load from local file, then merge/refresh from Google Sheet if configured."""
     try:
-        with open(CONTACTS_FILE) as f: return json.load(f)
-    except Exception: return {}
+        with open(CONTACTS_FILE) as f:
+            local = json.load(f)
+    except Exception:
+        local = {}
+    # Try to pull from sheet in background — if it works, merge and save locally
+    cfg = _load_sync_config()
+    if cfg.get("sheet_id") and cfg.get("service_account_path"):
+        try:
+            sheet_contacts, err = pull_contacts_from_sheet()
+            if sheet_contacts is not None and sheet_contacts:
+                merged = dict(local)
+                merged.update(sheet_contacts)
+                save_contacts(merged)
+                return merged
+        except Exception:
+            pass
+    return local
 
 def save_contacts(data):
     with open(CONTACTS_FILE,"w") as f: json.dump(data,f,indent=2)
@@ -444,6 +544,19 @@ class ContactsDialog(tk.Toplevel):
                  font=("Segoe UI",11,"bold")).pack(side="left")
         tk.Label(hdr,text=f"  {len(self.contacts)} clients saved",bg=FBC_DARK,fg="#90CAF9",
                  font=("Segoe UI",9)).pack(side="left",padx=8)
+        # Sync button on the right
+        tk.Button(hdr,text="☁ Setup Sync",command=self._setup_sync,
+                  bg=FBC_ACCENT,fg=WHITE,relief="flat",
+                  font=("Segoe UI",8,"bold"),cursor="hand2",
+                  padx=8,pady=3).pack(side="right",padx=(0,4))
+        tk.Button(hdr,text="⬆ Push to Sheet",command=self._push_to_sheet,
+                  bg="#1A6B3A",fg=WHITE,relief="flat",
+                  font=("Segoe UI",8,"bold"),cursor="hand2",
+                  padx=8,pady=3).pack(side="right",padx=(0,4))
+        tk.Button(hdr,text="⬇ Pull from Sheet",command=self._pull_from_sheet,
+                  bg="#1A3A6B",fg=WHITE,relief="flat",
+                  font=("Segoe UI",8,"bold"),cursor="hand2",
+                  padx=8,pady=3).pack(side="right",padx=(0,8))
 
         body=tk.Frame(self,bg=BG); body.pack(fill="both",expand=True,padx=12,pady=10)
 
@@ -608,8 +721,74 @@ class ContactsDialog(tk.Toplevel):
             self.contacts.pop(name,None); self._current_name=None
             self._filter_list(); self._show_detail(None)
 
+    def _setup_sync(self):
+        cfg = _load_sync_config()
+        dlg = tk.Toplevel(self); dlg.title("Setup Google Sheets Sync")
+        dlg.geometry("540x280"); dlg.configure(bg=BG); dlg.grab_set()
+        tk.Label(dlg,text="Google Sheets Sync Setup",bg=FBC_DARK,fg=WHITE,
+                 font=("Segoe UI",11,"bold"),pady=10,padx=14).pack(fill="x")
+        body=tk.Frame(dlg,bg=BG,padx=16,pady=12); body.pack(fill="both",expand=True)
+        tk.Label(body,text="Google Sheet ID (from the URL):",bg=BG,
+                 font=("Segoe UI",9,"bold")).pack(anchor="w")
+        e_sheet=tk.Entry(body,font=("Segoe UI",9),width=60)
+        e_sheet.insert(0,cfg.get("sheet_id",""))
+        e_sheet.pack(anchor="w",pady=(2,10),fill="x")
+        tk.Label(body,text="Service Account JSON file path:",bg=BG,
+                 font=("Segoe UI",9,"bold")).pack(anchor="w")
+        path_row=tk.Frame(body,bg=BG); path_row.pack(fill="x",pady=(2,4))
+        e_path=tk.Entry(path_row,font=("Segoe UI",9),width=48)
+        e_path.insert(0,cfg.get("service_account_path",""))
+        e_path.pack(side="left",fill="x",expand=True)
+        def browse():
+            p=filedialog.askopenfilename(title="Select Service Account JSON",
+                filetypes=[("JSON","*.json"),("All","*.*")])
+            if p: e_path.delete(0,tk.END); e_path.insert(0,p)
+        tk.Button(path_row,text="Browse…",command=browse,bg=FBC_MID,fg=WHITE,
+                  relief="flat",font=("Segoe UI",8),cursor="hand2",padx=6).pack(side="left",padx=4)
+        tk.Label(body,text="ⓘ  See SYNC_SETUP_GUIDE.txt for step-by-step instructions.",
+                 bg=BG,fg="#607080",font=("Segoe UI",8)).pack(anchor="w",pady=(4,0))
+        def save_cfg():
+            _save_sync_config({"sheet_id":e_sheet.get().strip(),
+                               "service_account_path":e_path.get().strip()})
+            messagebox.showinfo("Saved","Sync configuration saved.",parent=dlg)
+            dlg.destroy()
+        tk.Button(body,text="Save Configuration",command=save_cfg,
+                  bg=FBC_MID,fg=WHITE,relief="flat",font=("Segoe UI",9,"bold"),
+                  cursor="hand2",padx=12,pady=6).pack(anchor="w",pady=(12,0))
+
+    def _push_to_sheet(self):
+        ok, msg = push_contacts_to_sheet(self.contacts)
+        if ok: messagebox.showinfo("Sync", msg, parent=self)
+        elif msg == "sync_not_configured":
+            messagebox.showwarning("Not Configured",
+                "Sync is not set up yet.\nClick '☁ Setup Sync' to configure.", parent=self)
+        else: messagebox.showerror("Sync Error", msg, parent=self)
+
+    def _pull_from_sheet(self):
+        contacts, msg = pull_contacts_from_sheet()
+        if contacts is None:
+            if msg == "sync_not_configured":
+                messagebox.showwarning("Not Configured",
+                    "Sync is not set up yet.\nClick '☁ Setup Sync' to configure.", parent=self)
+            else: messagebox.showerror("Sync Error", msg, parent=self)
+            return
+        self.contacts.update(contacts)
+        save_contacts(self.contacts)
+        self._filter_list()
+        messagebox.showinfo("Pulled", msg, parent=self)
+
     def _save(self):
-        save_contacts(self.contacts); self.on_save(self.contacts); self.destroy()
+        save_contacts(self.contacts)
+        self.on_save(self.contacts)
+        # Push to Google Sheet in background thread
+        def _push():
+            ok, msg = push_contacts_to_sheet(self.contacts)
+            if ok:
+                print(f"[Sync] {msg}")
+            elif msg and msg != "sync_not_configured":
+                print(f"[Sync error] {msg}")
+        threading.Thread(target=_push, daemon=True).start()
+        self.destroy()
 
 # ════════════════════════════════════════════════════════════════════════════
 #  SARESTOCK PAGE
