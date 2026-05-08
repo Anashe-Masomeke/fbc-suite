@@ -13,7 +13,7 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 import sys, os, subprocess, urllib.request
 
-VERSION       = 13
+VERSION       = 14
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
