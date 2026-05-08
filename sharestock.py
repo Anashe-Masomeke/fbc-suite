@@ -13,7 +13,7 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 import sys, os, subprocess, urllib.request
 
-VERSION       = 17
+VERSION       = 18
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
@@ -47,22 +47,21 @@ def check_and_apply_update():
 
     current_exe = os.path.abspath(sys.argv[0])
     exe_dir     = os.path.dirname(current_exe)
-    exe_name    = os.path.basename(current_exe)
 
-    # Download to a DIFFERENT filename — never touch the running exe
+    # Download as a new versioned file — never touch the running exe
     new_exe_path = os.path.join(exe_dir, f"fbc-suite-v{rv}.exe")
     bat_path     = os.path.join(exe_dir, "_fbc_updater.bat")
 
     root2 = tk.Tk(); root2.withdraw()
     messagebox.showinfo("Downloading Update",
         f"Downloading FBC Suite v{rv} — please wait.\n\n"
-        "The new version will launch automatically.",
+        "The new version will open automatically when done.",
         parent=root2)
     root2.destroy()
 
     try:
-        # Download in chunks
-        MIN_SIZE = 20 * 1024 * 1024  # 20 MB minimum
+        # Download in chunks — reliable on slow connections
+        MIN_SIZE = 20 * 1024 * 1024  # 20 MB sanity check
         with urllib.request.urlopen(_EXE, timeout=180) as resp:
             with open(new_exe_path, "wb") as f:
                 while True:
@@ -71,7 +70,7 @@ def check_and_apply_update():
                         break
                     f.write(chunk)
 
-        # Verify download is complete
+        # Verify download completed
         size = os.path.getsize(new_exe_path)
         if size < MIN_SIZE:
             os.remove(new_exe_path)
@@ -80,16 +79,15 @@ def check_and_apply_update():
                 "Please check your internet and try again.")
 
         # Batch script:
-        # 1. Wait for THIS app to exit (it exits below via sys.exit)
-        # 2. Launch the NEW exe directly (different name = no lock conflict)
-        # 3. After new app starts, delete old exe and rename new one
+        # 1. Wait for THIS app to close
+        # 2. Launch the new versioned exe directly
+        # 3. Clean up this batch file
+        # NOTE: We do NOT rename or delete the old exe — Windows locks it
         bat_lines = [
             "@echo off",
-            "ping 127.0.0.1 -n 5 > nul",
+            "ping 127.0.0.1 -n 4 > nul",
             f'start "" "{new_exe_path}"',
-            "ping 127.0.0.1 -n 6 > nul",
-            f'del "{current_exe}"',
-            f'rename "{new_exe_path}" "{exe_name}"',
+            "ping 127.0.0.1 -n 2 > nul",
             'del "%~f0"',
         ]
         with open(bat_path, "w") as f:
