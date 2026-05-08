@@ -13,7 +13,7 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 import sys, os, subprocess, urllib.request
 
-VERSION       = 9
+VERSION       = 10
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
@@ -59,7 +59,32 @@ def check_and_apply_update():
     root2.destroy()
 
     try:
-        urllib.request.urlretrieve(_EXE, new_exe_tmp)
+        # Download with progress — use urlopen so we can track bytes
+        MIN_EXE_SIZE = 20 * 1024 * 1024  # 20 MB minimum — corrupt if smaller
+
+        try:
+            with urllib.request.urlopen(_EXE, timeout=120) as response:
+                total = int(response.headers.get('Content-Length', 0))
+                downloaded = 0
+                chunk_size = 65536  # 64 KB chunks
+                with open(new_exe_tmp, 'wb') as out:
+                    while True:
+                        chunk = response.read(chunk_size)
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                        downloaded += len(chunk)
+        except Exception as download_err:
+            raise Exception(f"Download failed: {download_err}")
+
+        # Verify the downloaded file is a real exe (not a partial/error page)
+        actual_size = os.path.getsize(new_exe_tmp)
+        if actual_size < MIN_EXE_SIZE:
+            os.remove(new_exe_tmp)
+            raise Exception(
+                f"Downloaded file is too small ({actual_size // 1024} KB) — "
+                f"download was incomplete or GitHub returned an error page.\n\n"
+                f"Please check your internet connection and try again.")
 
         bat_lines = [
             "@echo off",
@@ -494,50 +519,61 @@ def parse_client_name_from_filename(fname):
 
 def parse_client_name_from_pdf(pdf_path):
     """
-    Extract client name from inside the deal note PDF.
-
-    Layout of FBC deal notes:
-        Fiscal Tax Invoice          ← heading
-        IMARA ASSET MGMT            ← CLIENT NAME (this is what we want)
-        First Floor Block 2         ← address starts here
-        Tendeseka Office Park
-        ...
-
-    Strategy: Find text between "Fiscal Tax Invoice" and "First Floor".
-    The client name is the non-empty line(s) between these two markers.
+    Extract the client name directly from inside the deal note PDF.
+    The client name is always the first line of the address block on the left,
+    which appears just before the address lines (First Floor / Street / Harare).
+    Falls back to None if extraction fails.
     """
     try:
         import fitz
-        doc  = fitz.open(pdf_path)
+        doc = fitz.open(pdf_path)
         text = doc[0].get_text()
         doc.close()
 
-        # The client name sits between "Fiscal Tax Invoice" and "First Floor"
-        # Extract everything between those two anchors
+        # Strategy 1: Name appears just before "First Floor" address line
+        # Pattern: text before "First Floor" — grab the last non-empty line before it
+        m = re.search(r'([^\n]+)\n[^\n]*First Floor', text, re.IGNORECASE)
+        if m:
+            candidate = m.group(1).strip().upper()
+            # Must be at least 3 words and not look like an address/header
+            words = candidate.split()
+            if (len(words) >= 2
+                and not any(skip in candidate for skip in [
+                    "FBC SECURITIES", "FISCAL TAX", "CONTRACT NOTE",
+                    "INVOICE", "CHARGES", "SETTLEMENT", "DEAL DATE",
+                    "VERIFICATION", "76 S.", "TEL:", "VAT:"
+                ])
+                and len(candidate) > 6):
+                return candidate
+
+        # Strategy 2: Look for the block between "Fiscal Tax Invoice" and the address
+        # The name always appears after that heading
         m = re.search(
-            r'Fiscal Tax Invoice\s*\n+\s*([\s\S]+?)\s*\nFirst Floor',
+            r'(?:Fiscal Tax Invoice|CONTRACT NOTE[^\n]*)\s*\n+([A-Z][^\n]{5,80})\n',
             text, re.IGNORECASE)
         if m:
-            # May be multiple lines — join them, strip blanks
-            raw = m.group(1)
-            lines = [l.strip() for l in raw.split('\n') if l.strip()]
-            # Take only lines that look like a name (letters/spaces, no digits-only lines)
-            name_lines = []
-            for line in lines:
-                upper = line.upper()
-                # Skip lines that are clearly not names
-                if any(skip in upper for skip in [
-                    'FBC SECURITIES', 'FISCAL TAX', 'CONTRACT NOTE',
-                    'INVOICE', 'DEAL DATE', 'DEAL NUMBER', 'CSD CODE',
-                    'CUSTODIAL', 'EXCHANGE', 'SETTLEMENT', 'VAT:', 'TEL:',
-                    '76 S.', 'VERIFICATION', 'DEVICE', 'HARARE'
-                ]):
-                    continue
-                # Must have at least 2 characters and contain letters
-                if len(upper) >= 2 and re.search(r'[A-Z]', upper):
-                    name_lines.append(upper)
-            if name_lines:
-                return ' '.join(name_lines)
+            candidate = m.group(1).strip().upper()
+            if (len(candidate.split()) >= 2
+                and "FBC SECURITIES" not in candidate
+                and "INVOICE" not in candidate):
+                return candidate
+
+        # Strategy 3: The client block is always the largest name-like text
+        # before the word "Exchange" — look for ALL-CAPS multi-word lines
+        lines = [l.strip() for l in text.split('\n') if l.strip()]
+        for line in lines:
+            upper = line.upper()
+            words = upper.split()
+            if (len(words) >= 2
+                and re.match(r'^[A-Z][A-Z ]+$', upper)
+                and len(upper) > 8
+                and not any(skip in upper for skip in [
+                    "FBC SECURITIES","CONTRACT NOTE","FISCAL TAX","INVOICE",
+                    "CHARGES","RATES","SETTLEMENT","DEAL DATE","EXCHANGE",
+                    "ZIMBABWE STOCK","MEMBERS OF","FOR AND ON","VERIFICATION",
+                    "NO OF SHARES","DESCRIPTION","CONSIDERATION","THIS CONTRACT"
+                ])):
+                return upper
 
     except Exception:
         pass
@@ -1520,31 +1556,37 @@ class EmailerPage(tk.Frame):
         items=[]
         for fname in pdfs:
             path=os.path.join(folder,fname)
-            # Try PDF first (catches cases where filename doesn't match client name)
-            # Fall back to filename which is always reliable
-            client = parse_client_name_from_pdf(path) or parse_client_name_from_filename(fname)
+            # Try to read client name from inside the PDF first (most accurate)
+            # Fall back to filename if PDF extraction fails
+            client_from_pdf = parse_client_name_from_pdf(path)
+            client = client_from_pdf if client_from_pdf else parse_client_name_from_filename(fname)
             items.append({
                 "fname":fname,"path":path,
                 "client":client,
+                "client_source": "pdf" if client_from_pdf else "filename",
                 "custodian":parse_custodian_from_pdf(path) or "UNKNOWN",
                 "deal_info":parse_deal_info_from_pdf(path),"sent":False,
             })
         self.deal_items=items
         self._after_scan(len(items))
+
     def _scan_files(self,paths):
         """Scan individually selected files and append to existing deal_items."""
         new_items=[]
         for path in paths:
             fname=os.path.basename(path)
-            client = parse_client_name_from_pdf(path) or parse_client_name_from_filename(fname)
+            client_from_pdf = parse_client_name_from_pdf(path)
+            client = client_from_pdf if client_from_pdf else parse_client_name_from_filename(fname)
             new_items.append({
                 "fname":fname,"path":path,
                 "client":client,
+                "client_source": "pdf" if client_from_pdf else "filename",
                 "custodian":parse_custodian_from_pdf(path) or "UNKNOWN",
                 "deal_info":parse_deal_info_from_pdf(path),"sent":False,
             })
         self.deal_items.extend(new_items)
         self._after_scan(len(self.deal_items))
+
     def _after_scan(self,total):
         self.after(0,self._render_custodian_tab)
         self.after(0,self._render_client_tab)
