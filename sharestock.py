@@ -13,7 +13,7 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 import sys, os, subprocess, urllib.request
 
-VERSION       = 14
+VERSION       = 15
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
@@ -39,7 +39,7 @@ def check_and_apply_update():
     root = tk.Tk(); root.withdraw()
     ok = messagebox.askyesno(
         "FBC Suite — Update Available",
-        f"New version available  (v{rv}).\nYour version: v{VERSION}\n\nDownload and restart now?",
+        f"New version available  (v{rv}).\nYour version: v{VERSION}\n\nDownload and install now?",
         icon="info")
     root.destroy()
     if not ok:
@@ -48,29 +48,48 @@ def check_and_apply_update():
     current_exe = os.path.abspath(sys.argv[0])
     exe_dir     = os.path.dirname(current_exe)
     exe_name    = os.path.basename(current_exe)
-    new_exe_tmp = os.path.join(exe_dir, "_fbc_update_new.exe")
-    old_exe_bak = os.path.join(exe_dir, "_fbc_update_old.exe")
-    bat_path    = os.path.join(exe_dir, "_fbc_updater.bat")
+
+    # Download to a DIFFERENT filename — never touch the running exe
+    new_exe_path = os.path.join(exe_dir, f"fbc-suite-v{rv}.exe")
+    bat_path     = os.path.join(exe_dir, "_fbc_updater.bat")
 
     root2 = tk.Tk(); root2.withdraw()
     messagebox.showinfo("Downloading Update",
-        "Downloading update — please wait.\n\nThe app will restart automatically.",
+        f"Downloading FBC Suite v{rv} — please wait.\n\n"
+        "The new version will launch automatically.",
         parent=root2)
     root2.destroy()
 
     try:
-        urllib.request.urlretrieve(_EXE, new_exe_tmp)
+        # Download in chunks
+        MIN_SIZE = 20 * 1024 * 1024  # 20 MB minimum
+        with urllib.request.urlopen(_EXE, timeout=180) as resp:
+            with open(new_exe_path, "wb") as f:
+                while True:
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
 
+        # Verify download is complete
+        size = os.path.getsize(new_exe_path)
+        if size < MIN_SIZE:
+            os.remove(new_exe_path)
+            raise Exception(
+                f"Download incomplete ({size // 1024} KB).\n"
+                "Please check your internet and try again.")
+
+        # Batch script:
+        # 1. Wait for THIS app to exit (it exits below via sys.exit)
+        # 2. Launch the NEW exe directly (different name = no lock conflict)
+        # 3. After new app starts, delete old exe and rename new one
         bat_lines = [
             "@echo off",
-            "ping 127.0.0.1 -n 7 > nul",
-            f'taskkill /F /IM "{exe_name}" >nul 2>&1',
-            "ping 127.0.0.1 -n 4 > nul",
-            f'move /Y "{current_exe}" "{old_exe_bak}"',
-            f'move /Y "{new_exe_tmp}" "{current_exe}"',
-            f'start "" "{current_exe}"',
-            "ping 127.0.0.1 -n 3 > nul",
-            f'del "{old_exe_bak}"',
+            "ping 127.0.0.1 -n 5 > nul",
+            f'start "" "{new_exe_path}"',
+            "ping 127.0.0.1 -n 6 > nul",
+            f'del "{current_exe}"',
+            f'rename "{new_exe_path}" "{exe_name}"',
             'del "%~f0"',
         ]
         with open(bat_path, "w") as f:
@@ -84,12 +103,12 @@ def check_and_apply_update():
         sys.exit(0)
 
     except Exception as e:
-        for fp in [new_exe_tmp, bat_path]:
+        for fp in [new_exe_path, bat_path]:
             try: os.remove(fp)
             except Exception: pass
         root3 = tk.Tk(); root3.withdraw()
         messagebox.showerror("Update Failed",
-            f"Could not download update:\n\n{e}\n\n"
+            f"Could not update:\n\n{e}\n\n"
             "Please download manually from:\n"
             f"github.com/{GITHUB_USER}/{GITHUB_REPO}/releases/latest")
         root3.destroy()
@@ -494,50 +513,61 @@ def parse_client_name_from_filename(fname):
 
 def parse_client_name_from_pdf(pdf_path):
     """
-    Extract client name from inside the deal note PDF.
-
-    Layout of FBC deal notes:
-        Fiscal Tax Invoice          ← heading
-        IMARA ASSET MGMT            ← CLIENT NAME (this is what we want)
-        First Floor Block 2         ← address starts here
-        Tendeseka Office Park
-        ...
-
-    Strategy: Find text between "Fiscal Tax Invoice" and "First Floor".
-    The client name is the non-empty line(s) between these two markers.
+    Extract the client name directly from inside the deal note PDF.
+    The client name is always the first line of the address block on the left,
+    which appears just before the address lines (First Floor / Street / Harare).
+    Falls back to None if extraction fails.
     """
     try:
         import fitz
-        doc  = fitz.open(pdf_path)
+        doc = fitz.open(pdf_path)
         text = doc[0].get_text()
         doc.close()
 
-        # The client name sits between "Fiscal Tax Invoice" and "First Floor"
-        # Extract everything between those two anchors
+        # Strategy 1: Name appears just before "First Floor" address line
+        # Pattern: text before "First Floor" — grab the last non-empty line before it
+        m = re.search(r'([^\n]+)\n[^\n]*First Floor', text, re.IGNORECASE)
+        if m:
+            candidate = m.group(1).strip().upper()
+            # Must be at least 3 words and not look like an address/header
+            words = candidate.split()
+            if (len(words) >= 2
+                and not any(skip in candidate for skip in [
+                    "FBC SECURITIES", "FISCAL TAX", "CONTRACT NOTE",
+                    "INVOICE", "CHARGES", "SETTLEMENT", "DEAL DATE",
+                    "VERIFICATION", "76 S.", "TEL:", "VAT:"
+                ])
+                and len(candidate) > 6):
+                return candidate
+
+        # Strategy 2: Look for the block between "Fiscal Tax Invoice" and the address
+        # The name always appears after that heading
         m = re.search(
-            r'Fiscal Tax Invoice\s*\n+\s*([\s\S]+?)\s*\nFirst Floor',
+            r'(?:Fiscal Tax Invoice|CONTRACT NOTE[^\n]*)\s*\n+([A-Z][^\n]{5,80})\n',
             text, re.IGNORECASE)
         if m:
-            # May be multiple lines — join them, strip blanks
-            raw = m.group(1)
-            lines = [l.strip() for l in raw.split('\n') if l.strip()]
-            # Take only lines that look like a name (letters/spaces, no digits-only lines)
-            name_lines = []
-            for line in lines:
-                upper = line.upper()
-                # Skip lines that are clearly not names
-                if any(skip in upper for skip in [
-                    'FBC SECURITIES', 'FISCAL TAX', 'CONTRACT NOTE',
-                    'INVOICE', 'DEAL DATE', 'DEAL NUMBER', 'CSD CODE',
-                    'CUSTODIAL', 'EXCHANGE', 'SETTLEMENT', 'VAT:', 'TEL:',
-                    '76 S.', 'VERIFICATION', 'DEVICE', 'HARARE'
-                ]):
-                    continue
-                # Must have at least 2 characters and contain letters
-                if len(upper) >= 2 and re.search(r'[A-Z]', upper):
-                    name_lines.append(upper)
-            if name_lines:
-                return ' '.join(name_lines)
+            candidate = m.group(1).strip().upper()
+            if (len(candidate.split()) >= 2
+                and "FBC SECURITIES" not in candidate
+                and "INVOICE" not in candidate):
+                return candidate
+
+        # Strategy 3: The client block is always the largest name-like text
+        # before the word "Exchange" — look for ALL-CAPS multi-word lines
+        lines = [l.strip() for l in text.split('\n') if l.strip()]
+        for line in lines:
+            upper = line.upper()
+            words = upper.split()
+            if (len(words) >= 2
+                and re.match(r'^[A-Z][A-Z ]+$', upper)
+                and len(upper) > 8
+                and not any(skip in upper for skip in [
+                    "FBC SECURITIES","CONTRACT NOTE","FISCAL TAX","INVOICE",
+                    "CHARGES","RATES","SETTLEMENT","DEAL DATE","EXCHANGE",
+                    "ZIMBABWE STOCK","MEMBERS OF","FOR AND ON","VERIFICATION",
+                    "NO OF SHARES","DESCRIPTION","CONSIDERATION","THIS CONTRACT"
+                ])):
+                return upper
 
     except Exception:
         pass
@@ -1520,31 +1550,37 @@ class EmailerPage(tk.Frame):
         items=[]
         for fname in pdfs:
             path=os.path.join(folder,fname)
-            # Try PDF first (catches cases where filename doesn't match client name)
-            # Fall back to filename which is always reliable
-            client = parse_client_name_from_pdf(path) or parse_client_name_from_filename(fname)
+            # Try to read client name from inside the PDF first (most accurate)
+            # Fall back to filename if PDF extraction fails
+            client_from_pdf = parse_client_name_from_pdf(path)
+            client = client_from_pdf if client_from_pdf else parse_client_name_from_filename(fname)
             items.append({
                 "fname":fname,"path":path,
                 "client":client,
+                "client_source": "pdf" if client_from_pdf else "filename",
                 "custodian":parse_custodian_from_pdf(path) or "UNKNOWN",
                 "deal_info":parse_deal_info_from_pdf(path),"sent":False,
             })
         self.deal_items=items
         self._after_scan(len(items))
+
     def _scan_files(self,paths):
         """Scan individually selected files and append to existing deal_items."""
         new_items=[]
         for path in paths:
             fname=os.path.basename(path)
-            client = parse_client_name_from_pdf(path) or parse_client_name_from_filename(fname)
+            client_from_pdf = parse_client_name_from_pdf(path)
+            client = client_from_pdf if client_from_pdf else parse_client_name_from_filename(fname)
             new_items.append({
                 "fname":fname,"path":path,
                 "client":client,
+                "client_source": "pdf" if client_from_pdf else "filename",
                 "custodian":parse_custodian_from_pdf(path) or "UNKNOWN",
                 "deal_info":parse_deal_info_from_pdf(path),"sent":False,
             })
         self.deal_items.extend(new_items)
         self._after_scan(len(self.deal_items))
+
     def _after_scan(self,total):
         self.after(0,self._render_custodian_tab)
         self.after(0,self._render_client_tab)
