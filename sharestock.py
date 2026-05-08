@@ -13,7 +13,7 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 import sys, os, subprocess, urllib.request
 
-VERSION       = 10
+VERSION       = 11
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
@@ -39,7 +39,7 @@ def check_and_apply_update():
     root = tk.Tk(); root.withdraw()
     ok = messagebox.askyesno(
         "FBC Suite — Update Available",
-        f"New version available  (v{rv}).\nYour version: v{VERSION}\n\nDownload and restart now?",
+        f"New version available  (v{rv}).\nYour version: v{VERSION}\n\nDownload and install now?",
         icon="info")
     root.destroy()
     if not ok:
@@ -48,54 +48,53 @@ def check_and_apply_update():
     current_exe = os.path.abspath(sys.argv[0])
     exe_dir     = os.path.dirname(current_exe)
     exe_name    = os.path.basename(current_exe)
-    new_exe_tmp = os.path.join(exe_dir, "_fbc_update_new.exe")
-    old_exe_bak = os.path.join(exe_dir, "_fbc_update_old.exe")
-    bat_path    = os.path.join(exe_dir, "_fbc_updater.bat")
+
+    # Save new exe NEXT TO the current one with a version suffix
+    # We never overwrite the running exe — Windows locks it
+    new_exe_path = os.path.join(exe_dir, f"fbc-suite-v{rv}.exe")
+    bat_path     = os.path.join(exe_dir, "_fbc_updater.bat")
 
     root2 = tk.Tk(); root2.withdraw()
     messagebox.showinfo("Downloading Update",
-        "Downloading update — please wait.\n\nThe app will restart automatically.",
+        f"Downloading FBC Suite v{rv}\u2014 please wait.\n\n"
+        "The new version will launch automatically.",
         parent=root2)
     root2.destroy()
 
     try:
-        # Download with progress — use urlopen so we can track bytes
-        MIN_EXE_SIZE = 20 * 1024 * 1024  # 20 MB minimum — corrupt if smaller
+        # Download in chunks with progress
+        MIN_SIZE = 20 * 1024 * 1024  # 20 MB sanity check
+        with urllib.request.urlopen(_EXE, timeout=120) as resp:
+            with open(new_exe_path, 'wb') as f:
+                while True:
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
 
-        try:
-            with urllib.request.urlopen(_EXE, timeout=120) as response:
-                total = int(response.headers.get('Content-Length', 0))
-                downloaded = 0
-                chunk_size = 65536  # 64 KB chunks
-                with open(new_exe_tmp, 'wb') as out:
-                    while True:
-                        chunk = response.read(chunk_size)
-                        if not chunk:
-                            break
-                        out.write(chunk)
-                        downloaded += len(chunk)
-        except Exception as download_err:
-            raise Exception(f"Download failed: {download_err}")
-
-        # Verify the downloaded file is a real exe (not a partial/error page)
-        actual_size = os.path.getsize(new_exe_tmp)
-        if actual_size < MIN_EXE_SIZE:
-            os.remove(new_exe_tmp)
+        # Sanity check
+        size = os.path.getsize(new_exe_path)
+        if size < MIN_SIZE:
+            os.remove(new_exe_path)
             raise Exception(
-                f"Downloaded file is too small ({actual_size // 1024} KB) — "
-                f"download was incomplete or GitHub returned an error page.\n\n"
-                f"Please check your internet connection and try again.")
+                f"Download incomplete ({size//1024} KB).\n"
+                "Please check your internet and try again.")
 
+        # Batch script:
+        # 1. Wait for THIS process to exit
+        # 2. Launch the NEW exe (different filename — no lock conflict)
+        # 3. Optionally rename new to old after delay
         bat_lines = [
             "@echo off",
-            "ping 127.0.0.1 -n 7 > nul",
-            f'taskkill /F /IM "{exe_name}" >nul 2>&1',
-            "ping 127.0.0.1 -n 4 > nul",
-            f'move /Y "{current_exe}" "{old_exe_bak}"',
-            f'move /Y "{new_exe_tmp}" "{current_exe}"',
-            f'start "" "{current_exe}"',
-            "ping 127.0.0.1 -n 3 > nul",
-            f'del "{old_exe_bak}"',
+            # Wait for current app to exit
+            "ping 127.0.0.1 -n 5 > nul",
+            # Launch the new version directly
+            f'start "" "{new_exe_path}"',
+            # Wait for new app to start, then rename it to the standard name
+            "ping 127.0.0.1 -n 6 > nul",
+            f'del "{current_exe}"',
+            f'rename "{new_exe_path}" "{exe_name}"',
+            # Clean up this batch file
             'del "%~f0"',
         ]
         with open(bat_path, "w") as f:
@@ -109,12 +108,12 @@ def check_and_apply_update():
         sys.exit(0)
 
     except Exception as e:
-        for fp in [new_exe_tmp, bat_path]:
+        for fp in [new_exe_path, bat_path]:
             try: os.remove(fp)
             except Exception: pass
         root3 = tk.Tk(); root3.withdraw()
         messagebox.showerror("Update Failed",
-            f"Could not download update:\n\n{e}\n\n"
+            f"Could not update:\n\n{e}\n\n"
             "Please download manually from:\n"
             f"github.com/{GITHUB_USER}/{GITHUB_REPO}/releases/latest")
         root3.destroy()
