@@ -13,7 +13,7 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 import sys, os, subprocess, urllib.request
 
-VERSION       = 18
+VERSION       = 19
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
@@ -509,62 +509,78 @@ def parse_client_name_from_filename(fname):
     base = re.sub(r'\s+\d{6,}\s*$', '', base)
     return base.strip().upper()
 
+# ═══════════════════════════════════════════════════════════
+#  FBC SUITE v18 — CLIENT NAME PARSER FIX
+#  Replace the existing parse_client_name_from_pdf function
+#  with this corrected version.
+# ═══════════════════════════════════════════════════════════
+
 def parse_client_name_from_pdf(pdf_path):
     """
-    Extract the client name directly from inside the deal note PDF.
-    The client name is always the first line of the address block on the left,
-    which appears just before the address lines (First Floor / Street / Harare).
-    Falls back to None if extraction fails.
+    Extract the client name directly from the deal note PDF.
+
+    Root cause of "DEAL DATE" bug:
+      fitz extracts the two-column PDF top-to-bottom, so the right-column
+      info block (Exchange, Deal Date, Client Name, Custodial) appears AFTER
+      the charges table in the raw text stream.  In that stream the order is:
+        ...Fiscal Tax Invoice\nDeal Date 2026/05/05\nTHE CHAAVURE FAMILY TRUST...
+      The old Strategy 2 grabbed "Deal Date 2026/05/05" (the line right after
+      "Fiscal Tax Invoice") instead of the client name on the next line.
+
+    Fix:
+      Strategy 1 now anchors on "Deal Date YYYY/MM/DD" and grabs the NEXT line,
+      which is always the client name in both ZSE and VFEX deal notes.
     """
+    SKIP_WORDS = [
+        "FBC SECURITIES", "CONTRACT NOTE", "FISCAL TAX", "INVOICE",
+        "CHARGES", "RATES TABLE", "SETTLEMENT", "EXCHANGE", "ZIMBABWE STOCK",
+        "MEMBERS OF", "FOR AND ON", "VERIFICATION", "NO OF SHARES",
+        "DESCRIPTION", "CONSIDERATION", "THIS CONTRACT", "DEAL DATE",
+        "DEAL NUMBER", "CSD CODE", "CUSTODIAL", "SUBJECT TO",
+        "ECONET", "INFRA", "FIRST BANKING", "PFUMA", "ISIN",
+        "SUB TOTAL", "VAT TOTAL", "INVOICE TOTAL", "76 S.", "TEL:", "VAT:",
+    ]
+
+    def _is_valid(c):
+        c = c.strip().upper()
+        if len(c) < 4:
+            return False
+        if re.match(r'^[\d\s/\-\.,%]+$', c):   # pure numbers / punctuation
+            return False
+        if any(skip in c for skip in SKIP_WORDS):
+            return False
+        return True
+
     try:
         import fitz
         doc = fitz.open(pdf_path)
         text = doc[0].get_text()
         doc.close()
 
-        # Strategy 1: Name appears just before "First Floor" address line
-        # Pattern: text before "First Floor" — grab the last non-empty line before it
-        m = re.search(r'([^\n]+)\n[^\n]*First Floor', text, re.IGNORECASE)
+        # ── Strategy 1 (primary): line immediately after "Deal Date YYYY/MM/DD" ─
+        # Works for ZSE and VFEX.  The client name is always on that exact line.
+        m = re.search(r'Deal Date\s+[\d/\-]+\s*\n\s*(.+)', text)
         if m:
             candidate = m.group(1).strip().upper()
-            # Must be at least 3 words and not look like an address/header
-            words = candidate.split()
-            if (len(words) >= 2
-                and not any(skip in candidate for skip in [
-                    "FBC SECURITIES", "FISCAL TAX", "CONTRACT NOTE",
-                    "INVOICE", "CHARGES", "SETTLEMENT", "DEAL DATE",
-                    "VERIFICATION", "76 S.", "TEL:", "VAT:"
-                ])
-                and len(candidate) > 6):
+            if _is_valid(candidate):
                 return candidate
 
-        # Strategy 2: Look for the block between "Fiscal Tax Invoice" and the address
-        # The name always appears after that heading
-        m = re.search(
-            r'(?:Fiscal Tax Invoice|CONTRACT NOTE[^\n]*)\s*\n+([A-Z][^\n]{5,80})\n',
-            text, re.IGNORECASE)
+        # ── Strategy 2: first valid line after "Fiscal Tax Invoice" ─────────────
+        # Skip lines that look like a date ("2026/05/05") just in case.
+        m = re.search(r'Fiscal Tax Invoice\s*\n+([^\n]{4,80})\n', text, re.IGNORECASE)
         if m:
             candidate = m.group(1).strip().upper()
-            if (len(candidate.split()) >= 2
-                and "FBC SECURITIES" not in candidate
-                and "INVOICE" not in candidate):
+            if _is_valid(candidate) and not re.search(r'\d{4}/\d{2}/\d{2}', candidate):
                 return candidate
 
-        # Strategy 3: The client block is always the largest name-like text
-        # before the word "Exchange" — look for ALL-CAPS multi-word lines
+        # ── Strategy 3: ALL-CAPS multi-word name scan ────────────────────────────
         lines = [l.strip() for l in text.split('\n') if l.strip()]
         for line in lines:
             upper = line.upper()
-            words = upper.split()
-            if (len(words) >= 2
-                and re.match(r'^[A-Z][A-Z ]+$', upper)
-                and len(upper) > 8
-                and not any(skip in upper for skip in [
-                    "FBC SECURITIES","CONTRACT NOTE","FISCAL TAX","INVOICE",
-                    "CHARGES","RATES","SETTLEMENT","DEAL DATE","EXCHANGE",
-                    "ZIMBABWE STOCK","MEMBERS OF","FOR AND ON","VERIFICATION",
-                    "NO OF SHARES","DESCRIPTION","CONSIDERATION","THIS CONTRACT"
-                ])):
+            if (len(upper.split()) >= 2
+                    and re.match(r'^[A-Z][A-Z\s]+$', upper)
+                    and len(upper) > 8
+                    and _is_valid(upper)):
                 return upper
 
     except Exception:
