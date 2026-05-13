@@ -13,7 +13,7 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 import sys, os, subprocess, urllib.request
 
-VERSION       = 19
+VERSION       = 20
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
@@ -229,9 +229,8 @@ def pad_client(c):
     return s if d==-1 else f"{s[:d]}-{s[d+1:].zfill(4)}"
 
 def get_now():
-    d=datetime.now(); h=d.hour%12 or 12; ap="PM" if d.hour>=12 else "AM"
-    return f"{d.day}/{d.month}/{d.year} {h}:{d.minute:02d}:{d.second:02d} {ap}"
-
+    d=datetime.now()
+    return f"{d.day}/{d.month}/{d.year} {d.hour}:{d.minute:02d}"
 def stamp():
     d=datetime.now(); return f"{d.day}_{d.month}_{d.year}"
 
