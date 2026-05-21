@@ -13,7 +13,7 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 import sys, os, subprocess, urllib.request
 
-VERSION       = 20
+VERSION       = 21
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
@@ -48,7 +48,6 @@ def check_and_apply_update():
     current_exe = os.path.abspath(sys.argv[0])
     exe_dir     = os.path.dirname(current_exe)
 
-    # Download as a new versioned file — never touch the running exe
     new_exe_path = os.path.join(exe_dir, f"fbc-suite-v{rv}.exe")
     bat_path     = os.path.join(exe_dir, "_fbc_updater.bat")
 
@@ -60,8 +59,7 @@ def check_and_apply_update():
     root2.destroy()
 
     try:
-        # Download in chunks — reliable on slow connections
-        MIN_SIZE = 20 * 1024 * 1024  # 20 MB sanity check
+        MIN_SIZE = 20 * 1024 * 1024
         with urllib.request.urlopen(_EXE, timeout=180) as resp:
             with open(new_exe_path, "wb") as f:
                 while True:
@@ -70,7 +68,6 @@ def check_and_apply_update():
                         break
                     f.write(chunk)
 
-        # Verify download completed
         size = os.path.getsize(new_exe_path)
         if size < MIN_SIZE:
             os.remove(new_exe_path)
@@ -78,11 +75,6 @@ def check_and_apply_update():
                 f"Download incomplete ({size // 1024} KB).\n"
                 "Please check your internet and try again.")
 
-        # Batch script:
-        # 1. Wait for THIS app to close
-        # 2. Launch the new versioned exe directly
-        # 3. Clean up this batch file
-        # NOTE: We do NOT rename or delete the old exe — Windows locks it
         bat_lines = [
             "@echo off",
             "ping 127.0.0.1 -n 4 > nul",
@@ -154,6 +146,139 @@ SIDEBAR_TEXT    = "#B0C8E8"
 SIDEBAR_TEXT_ON = "#FFFFFF"
 
 # ════════════════════════════════════════════════════════════════════════════
+#  LOGIN DIALOG
+# ════════════════════════════════════════════════════════════════════════════
+APP_PASSWORD = "pope"
+MAX_ATTEMPTS = 6
+
+class LoginDialog(tk.Tk):
+    """Standalone login window shown before the main app launches."""
+
+    def __init__(self):
+        super().__init__()
+        self.title("FBC Suite — Login")
+        self.resizable(False, False)
+        self.configure(bg=SIDEBAR_BG)
+        self._attempts = 0
+        self.authenticated = False
+        self._build()
+        # Centre on screen
+        self.update_idletasks()
+        w, h = 380, 340
+        x = (self.winfo_screenwidth()  - w) // 2
+        y = (self.winfo_screenheight() - h) // 2
+        self.geometry(f"{w}x{h}+{x}+{y}")
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _build(self):
+        # ── header ──────────────────────────────────────────────────────────
+        hdr = tk.Frame(self, bg=FBC_ACCENT, pady=18)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text="FBC", bg=FBC_DARK, fg=WHITE,
+                 font=("Segoe UI", 20, "bold"), padx=12, pady=6).pack()
+        tk.Label(hdr, text="Suite", bg=FBC_ACCENT, fg=WHITE,
+                 font=("Segoe UI", 11)).pack(pady=(2, 0))
+
+        # ── body ────────────────────────────────────────────────────────────
+        body = tk.Frame(self, bg=SIDEBAR_BG, padx=36, pady=24)
+        body.pack(fill="both", expand=True)
+
+        tk.Label(body, text="Enter Password", bg=SIDEBAR_BG, fg=SIDEBAR_TEXT,
+                 font=("Segoe UI", 10, "bold")).pack(anchor="w")
+
+        # password entry with show/hide toggle
+        pw_row = tk.Frame(body, bg=SIDEBAR_BG)
+        pw_row.pack(fill="x", pady=(6, 0))
+
+        self._pw_var = tk.StringVar()
+        self._show_pw = False
+        self.entry_pw = tk.Entry(pw_row, textvariable=self._pw_var, show="●",
+                                 font=("Segoe UI", 12), bg="#0D2B4E", fg=WHITE,
+                                 insertbackground=WHITE, relief="flat",
+                                 highlightbackground=FBC_MID, highlightthickness=1)
+        self.entry_pw.pack(side="left", fill="x", expand=True, ipady=8, padx=(0, 4))
+        self.entry_pw.focus()
+
+        self.btn_eye = tk.Button(pw_row, text="👁", command=self._toggle_show,
+                                 bg="#0D2B4E", fg=SIDEBAR_TEXT, relief="flat",
+                                 font=("Segoe UI", 12), cursor="hand2",
+                                 activebackground=FBC_MID, activeforeground=WHITE,
+                                 padx=6)
+        self.btn_eye.pack(side="left")
+
+        # error label (hidden until needed)
+        self.lbl_err = tk.Label(body, text="", bg=SIDEBAR_BG, fg="#FF6B6B",
+                                font=("Segoe UI", 9))
+        self.lbl_err.pack(anchor="w", pady=(6, 0))
+
+        # attempts indicator
+        self.lbl_attempts = tk.Label(body, text="", bg=SIDEBAR_BG, fg="#607080",
+                                     font=("Segoe UI", 8))
+        self.lbl_attempts.pack(anchor="w")
+
+        # login button
+        self.btn_login = tk.Button(body, text="  🔓  Login  ",
+                                   command=self._attempt_login,
+                                   bg=FBC_MID, fg=WHITE, relief="flat",
+                                   font=("Segoe UI", 11, "bold"),
+                                   cursor="hand2", pady=10, activebackground=FBC_ACCENT)
+        self.btn_login.pack(fill="x", pady=(16, 0))
+
+        # bind Enter key
+        self.entry_pw.bind("<Return>", lambda _: self._attempt_login())
+
+        # ── footer ──────────────────────────────────────────────────────────
+        tk.Label(self, text=f"v{VERSION}", bg=SIDEBAR_BG, fg="#2A4A6A",
+                 font=("Segoe UI", 8)).pack(side="bottom", pady=6)
+
+    def _toggle_show(self):
+        self._show_pw = not self._show_pw
+        self.entry_pw.config(show="" if self._show_pw else "●")
+        self.btn_eye.config(text="🙈" if self._show_pw else "👁")
+
+    def _attempt_login(self):
+        entered = self._pw_var.get().strip().lower()
+        if entered == APP_PASSWORD.lower():
+            self.authenticated = True
+            self.destroy()
+            return
+
+        self._attempts += 1
+        remaining = MAX_ATTEMPTS - self._attempts
+
+        if remaining <= 0:
+            messagebox.showerror("Access Denied",
+                "Too many incorrect attempts.\nThe application will now close.")
+            self.destroy()
+            return
+
+        self.lbl_err.config(text="❌  Incorrect password. Please try again.")
+        self.lbl_attempts.config(
+            text=f"  {remaining} attempt{'s' if remaining > 1 else ''} remaining")
+        self._pw_var.set("")
+        self.entry_pw.focus()
+        # Shake animation
+        self._shake()
+
+    def _shake(self, times=6, distance=8):
+        """Briefly shake the window left-right."""
+        x0 = self.winfo_x()
+        y0 = self.winfo_y()
+        def step(n):
+            if n == 0:
+                self.geometry(f"+{x0}+{y0}")
+                return
+            offset = distance if n % 2 == 0 else -distance
+            self.geometry(f"+{x0 + offset}+{y0}")
+            self.after(40, lambda: step(n - 1))
+        step(times)
+
+    def _on_close(self):
+        self.authenticated = False
+        self.destroy()
+
+
+# ════════════════════════════════════════════════════════════════════════════
 #  ── SARESTOCK LOGIC ────────────────────────────────────────────────────────
 # ════════════════════════════════════════════════════════════════════════════
 STATE_FILE = os.path.join(os.path.expanduser("~"), ".fbc_ticket_state.json")
@@ -168,9 +293,9 @@ PREVIEW_COLS = ["Exchange","Market","Participant","Custodian","Client",
                 "Symbol","Buy/Sell","Price","Volume","Ticket No."]
 
 SARESTOCK_EMAIL_SUBJECT = "DEALS CONFIRMATION"
-SARESTOCK_EMAIL_BODY    = (
-    "Good day,\r\n\r\nKindly find attached for deals confirmation.\r\n\r\nRegards,\r\nAnashe."
-)
+def get_sarestock_email_body(sender_name=""):
+    name = sender_name.strip() or "FBC Securities"
+    return f"Good day,\r\n\r\nKindly find attached for deals confirmation.\r\n\r\nRegards,\r\n{name}."
 SARESTOCK_EMAIL_TO = "Anesu.Zingundu@fbc.co.zw"
 SARESTOCK_EMAIL_CC = ";".join([
     "Enock.Rukarwa@fbc.co.zw","Manatsa.Tagwireyi@fbc.co.zw",
@@ -306,11 +431,11 @@ def generate_pdf(raw_rows,raw_headers,out_dir):
         pdf.ln()
     pdf.output(path); return path
 
-def open_sarestock_outlook(file_paths):
+def open_sarestock_outlook(file_paths, sender_name=""):
     _require("win32com.client","pywin32")
     import win32com.client as win32
     outlook=win32.Dispatch("outlook.application"); mail=outlook.CreateItem(0)
-    mail.Subject=SARESTOCK_EMAIL_SUBJECT; mail.Body=SARESTOCK_EMAIL_BODY
+    mail.Subject=SARESTOCK_EMAIL_SUBJECT; mail.Body=get_sarestock_email_body(sender_name)
     mail.To=SARESTOCK_EMAIL_TO; mail.CC=SARESTOCK_EMAIL_CC
     for fp in file_paths:
         if fp and os.path.exists(fp): mail.Attachments.Add(fp)
@@ -320,15 +445,21 @@ def open_sarestock_outlook(file_paths):
 #  ── EMAILER LOGIC ──────────────────────────────────────────────────────────
 # ════════════════════════════════════════════════════════════════════════════
 CONTACTS_FILE    = os.path.join(os.path.expanduser("~"),".fbc_dealnote_contacts.json")
+SENDER_NAME_FILE = os.path.join(os.path.expanduser("~"),".fbc_sender_name.txt")
 
-# ════════════════════════════════════════════════════════════════════════════
-#  GOOGLE SHEETS SYNC
-#  Sheet ID is read from a small config file so you only set it once.
-#  Setup: pip install gspread google-auth
-#         Then run the app and click "⚙ Setup Sync" to enter your Sheet ID.
-# ════════════════════════════════════════════════════════════════════════════
+def load_sender_name():
+    try:
+        with open(SENDER_NAME_FILE) as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+def save_sender_name(name):
+    with open(SENDER_NAME_FILE,"w") as f:
+        f.write(name.strip())
+
 SYNC_CONFIG_FILE = os.path.join(os.path.expanduser("~"), ".fbc_sync_config.json")
-SHEET_WORKSHEET  = "Contacts"   # name of the tab inside the Google Sheet
+SHEET_WORKSHEET  = "Contacts"
 
 def _load_sync_config():
     try:
@@ -342,7 +473,6 @@ def _save_sync_config(cfg):
         json.dump(cfg, f, indent=2)
 
 def _get_gsheet():
-    """Return the worksheet object or None if not configured."""
     try:
         import gspread
         from google.oauth2.service_account import Credentials
@@ -370,7 +500,6 @@ def _get_gsheet():
         return None, str(e)
 
 def push_contacts_to_sheet(contacts):
-    """Upload all contacts to Google Sheet (overwrites). Returns (ok, msg)."""
     ws, err = _get_gsheet()
     if ws is None:
         return False, err
@@ -385,7 +514,6 @@ def push_contacts_to_sheet(contacts):
         return False, str(e)
 
 def pull_contacts_from_sheet():
-    """Download contacts from Google Sheet. Returns (contacts_dict, msg)."""
     ws, err = _get_gsheet()
     if ws is None:
         return None, err
@@ -393,7 +521,6 @@ def pull_contacts_from_sheet():
         all_rows = ws.get_all_values()
         if not all_rows:
             return {}, "Sheet is empty"
-        # skip header row
         data_rows = all_rows[1:] if all_rows[0] == ["Name", "Email"] else all_rows
         contacts = {}
         for row in data_rows:
@@ -404,6 +531,7 @@ def pull_contacts_from_sheet():
         return contacts, f"Loaded {len(contacts)} contacts from Google Sheets"
     except Exception as e:
         return None, str(e)
+
 KNOWN_CUSTODIANS = ["FBCZSEZW","CBZCZWHX","STINZWVX","CBCZSEZW","FBCSZWVX"]
 
 CUSTODIAN_PREFIX_MAP = [
@@ -436,49 +564,46 @@ CUSTODIAN_ROUTING = {
         "cc":["Custodial Services <CustodialServices@fbc.co.zw>"]+_FBC_CC},
 }
 
-CUSTODIAN_BODY_SINGLE = "Good day,\r\n\r\nKindly find attached today's deal note.\r\n\r\nRegards,\r\nAnashe."
-CUSTODIAN_BODY_MULTI  = "Good day,\r\n\r\nKindly find attached today's deal notes.\r\n\r\nRegards,\r\nAnashe."
+def get_custodian_body(multi=False, sender_name=""):
+    name = sender_name.strip() or "FBC Securities"
+    if multi:
+        return f"Good day,\r\n\r\nKindly find attached today's deal notes.\r\n\r\nRegards,\r\n{name}."
+    return f"Good day,\r\n\r\nKindly find attached today's deal note.\r\n\r\nRegards,\r\n{name}."
 
-CLIENT_BODY_SINGLE = "Dear {client},\r\n\r\nPlease find attached your deal note for today's transaction.\r\n\r\nRegards,\r\nAnashe."
-CLIENT_BODY_MULTI  = "Dear {client},\r\n\r\nPlease find attached your deal notes for today's transactions.\r\n\r\nRegards,\r\nAnashe."
+def get_client_body(client, multi=False, sender_name=""):
+    name = sender_name.strip() or "FBC Securities"
+    if multi:
+        return f"Dear {client},\r\n\r\nPlease find attached your deal notes for today's transactions.\r\n\r\nRegards,\r\n{name}."
+    return f"Dear {client},\r\n\r\nPlease find attached your deal note for today's transaction.\r\n\r\nRegards,\r\n{name}."
 
 CLIENT_CC = _FBC_CC
 
 def _name_tokens(name):
-    """Return a frozenset of uppercase words — order-independent name matching."""
     return frozenset(w.strip() for w in name.upper().split() if w.strip())
 
 def _names_match(a, b):
-    """True if two names share all tokens regardless of order.
-    e.g. 'MAKWASHA TANYARADZWA' matches 'TANYARADZWA MAKWASHA'."""
     ta, tb = _name_tokens(a), _name_tokens(b)
     if not ta or not tb:
         return False
-    # Exact token-set match  OR  one is a subset of the other (handles short saved names)
     return ta == tb or ta.issubset(tb) or tb.issubset(ta)
 
 def find_contact(contacts, client_name):
-    # 1. Exact match
     if client_name in contacts:
         return contacts[client_name]
-    # 2. Order-independent token match (handles surname-first filenames)
     for saved, data in contacts.items():
         if _names_match(client_name, saved):
             return data
-    # 3. Prefix fallback (legacy)
     for saved, data in contacts.items():
         if client_name.startswith(saved) or saved.startswith(client_name):
             return data
     return {}
 
 def load_contacts():
-    """Load from local file, then merge/refresh from Google Sheet if configured."""
     try:
         with open(CONTACTS_FILE) as f:
             local = json.load(f)
     except Exception:
         local = {}
-    # Try to pull from sheet in background — if it works, merge and save locally
     cfg = _load_sync_config()
     if cfg.get("sheet_id") and cfg.get("service_account_path"):
         try:
@@ -496,40 +621,15 @@ def save_contacts(data):
     with open(CONTACTS_FILE,"w") as f: json.dump(data,f,indent=2)
 
 def parse_client_name_from_filename(fname):
-    base = os.path.splitext(fname)[0]       # strip .pdf
-    base = base.replace("_", " ").strip()   # underscores to spaces
-    # Remove trailing duplicate markers like (1), (2), (10)
+    base = os.path.splitext(fname)[0]
+    base = base.replace("_", " ").strip()
     base = re.sub(r'\s*\(\d+\)\s*$', '', base)
-    # Remove trailing timestamp numbers e.g. _20240501
     base = re.sub(r'\s*_\d{6,}\s*$', '', base)
-    # Remove trailing amount+ticker e.g. ", 102,500 FBC" or ", 67,700 TSL"
     base = re.sub(r',\s*[\d,]+\s+[A-Z]{2,6}\.?\s*$', '', base)
-    # Remove trailing standalone long number e.g. "JOHN SMITH 20240501"
     base = re.sub(r'\s+\d{6,}\s*$', '', base)
     return base.strip().upper()
 
-# ═══════════════════════════════════════════════════════════
-#  FBC SUITE v18 — CLIENT NAME PARSER FIX
-#  Replace the existing parse_client_name_from_pdf function
-#  with this corrected version.
-# ═══════════════════════════════════════════════════════════
-
 def parse_client_name_from_pdf(pdf_path):
-    """
-    Extract the client name directly from the deal note PDF.
-
-    Root cause of "DEAL DATE" bug:
-      fitz extracts the two-column PDF top-to-bottom, so the right-column
-      info block (Exchange, Deal Date, Client Name, Custodial) appears AFTER
-      the charges table in the raw text stream.  In that stream the order is:
-        ...Fiscal Tax Invoice\nDeal Date 2026/05/05\nTHE CHAAVURE FAMILY TRUST...
-      The old Strategy 2 grabbed "Deal Date 2026/05/05" (the line right after
-      "Fiscal Tax Invoice") instead of the client name on the next line.
-
-    Fix:
-      Strategy 1 now anchors on "Deal Date YYYY/MM/DD" and grabs the NEXT line,
-      which is always the client name in both ZSE and VFEX deal notes.
-    """
     SKIP_WORDS = [
         "FBC SECURITIES", "CONTRACT NOTE", "FISCAL TAX", "INVOICE",
         "CHARGES", "RATES TABLE", "SETTLEMENT", "EXCHANGE", "ZIMBABWE STOCK",
@@ -544,7 +644,7 @@ def parse_client_name_from_pdf(pdf_path):
         c = c.strip().upper()
         if len(c) < 4:
             return False
-        if re.match(r'^[\d\s/\-\.,%]+$', c):   # pure numbers / punctuation
+        if re.match(r'^[\d\s/\-\.,%]+$', c):
             return False
         if any(skip in c for skip in SKIP_WORDS):
             return False
@@ -556,23 +656,18 @@ def parse_client_name_from_pdf(pdf_path):
         text = doc[0].get_text()
         doc.close()
 
-        # ── Strategy 1 (primary): line immediately after "Deal Date YYYY/MM/DD" ─
-        # Works for ZSE and VFEX.  The client name is always on that exact line.
         m = re.search(r'Deal Date\s+[\d/\-]+\s*\n\s*(.+)', text)
         if m:
             candidate = m.group(1).strip().upper()
             if _is_valid(candidate):
                 return candidate
 
-        # ── Strategy 2: first valid line after "Fiscal Tax Invoice" ─────────────
-        # Skip lines that look like a date ("2026/05/05") just in case.
         m = re.search(r'Fiscal Tax Invoice\s*\n+([^\n]{4,80})\n', text, re.IGNORECASE)
         if m:
             candidate = m.group(1).strip().upper()
             if _is_valid(candidate) and not re.search(r'\d{4}/\d{2}/\d{2}', candidate):
                 return candidate
 
-        # ── Strategy 3: ALL-CAPS multi-word name scan ────────────────────────────
         lines = [l.strip() for l in text.split('\n') if l.strip()]
         for line in lines:
             upper = line.upper()
@@ -642,7 +737,6 @@ class ContactsDialog(tk.Toplevel):
                  font=("Segoe UI",11,"bold")).pack(side="left")
         tk.Label(hdr,text=f"  {len(self.contacts)} clients saved",bg=FBC_DARK,fg="#90CAF9",
                  font=("Segoe UI",9)).pack(side="left",padx=8)
-        # Sync button on the right
         tk.Button(hdr,text="☁ Setup Sync",command=self._setup_sync,
                   bg=FBC_ACCENT,fg=WHITE,relief="flat",
                   font=("Segoe UI",8,"bold"),cursor="hand2",
@@ -658,13 +752,11 @@ class ContactsDialog(tk.Toplevel):
 
         body=tk.Frame(self,bg=BG); body.pack(fill="both",expand=True,padx=12,pady=10)
 
-        # ── LEFT: search + list ──────────────────────────────────────────
         left=tk.Frame(body,bg=WHITE,relief="flat",bd=1); left.pack(side="left",fill="y",padx=(0,8))
 
         tk.Label(left,text="Clients",bg=FBC_MID,fg=WHITE,
                  font=("Segoe UI",9,"bold"),pady=6,padx=8).pack(fill="x")
 
-        # search bar
         s_frame=tk.Frame(left,bg=WHITE,padx=4,pady=4); s_frame.pack(fill="x")
         tk.Label(s_frame,text="🔍",bg=WHITE,font=("Segoe UI",10)).pack(side="left")
         self.search_var=tk.StringVar()
@@ -677,7 +769,6 @@ class ContactsDialog(tk.Toplevel):
                   bg=WHITE,fg="#8096B0",relief="flat",font=("Segoe UI",8),
                   cursor="hand2",padx=2).pack(side="left")
 
-        # listbox
         lb_frame=tk.Frame(left,bg=WHITE); lb_frame.pack(fill="both",expand=True,padx=4,pady=(0,4))
         self.listbox=tk.Listbox(lb_frame,width=26,font=("Segoe UI",9),
                                 selectbackground=FBC_MID,activestyle="none",
@@ -688,35 +779,30 @@ class ContactsDialog(tk.Toplevel):
         lb_sb.pack(side="right",fill="y")
         self.listbox.bind("<<ListboxSelect>>",self._on_select)
 
-        # add / delete
         br=tk.Frame(left,bg=WHITE); br.pack(fill="x",padx=4,pady=(0,6))
         tk.Button(br,text="+ Add",command=self._add,bg=GREEN_DARK,fg=WHITE,
                   relief="flat",font=("Segoe UI",8,"bold"),cursor="hand2").pack(side="left",padx=(0,4))
         tk.Button(br,text="✕ Delete",command=self._delete,bg=RED_DARK,fg=WHITE,
                   relief="flat",font=("Segoe UI",8,"bold"),cursor="hand2").pack(side="left")
 
-        # ── RIGHT: detail panel ──────────────────────────────────────────
         right=tk.Frame(body,bg=WHITE,relief="flat",bd=1); right.pack(side="left",fill="both",expand=True)
         tk.Label(right,text="Contact Details",bg=FBC_MID,fg=WHITE,
                  font=("Segoe UI",9,"bold"),pady=6,padx=8).pack(fill="x")
         self.detail=tk.Frame(right,bg=WHITE); self.detail.pack(fill="both",expand=True,padx=14,pady=12)
         self._show_detail(None)
 
-        # ── bottom bar ───────────────────────────────────────────────────
         bot=tk.Frame(self,bg=BG); bot.pack(fill="x",padx=12,pady=(0,10))
         tk.Button(bot,text="💾  Save & Close",command=self._save,bg=FBC_MID,fg=WHITE,
                   font=("Segoe UI",10,"bold"),relief="flat",padx=16,pady=8,cursor="hand2").pack(side="right")
 
         self._filter_list()
 
-    # ── list helpers ─────────────────────────────────────────────────────────
     def _filter_list(self):
         term=self.search_var.get().strip().upper()
         self.listbox.delete(0,tk.END)
         for n in sorted(self.contacts):
             if term in n.upper():
                 self.listbox.insert(tk.END,n)
-        # reselect current if still visible
         if self._current_name:
             for i in range(self.listbox.size()):
                 if self.listbox.get(i)==self._current_name:
@@ -739,7 +825,6 @@ class ContactsDialog(tk.Toplevel):
 
         data=self.contacts.get(name,{"email":""})
 
-        # ── client name (editable) ──
         tk.Label(self.detail,text="Client Name:",bg=WHITE,fg="#607080",
                  font=("Segoe UI",8,"bold")).pack(anchor="w")
         name_row=tk.Frame(self.detail,bg=WHITE); name_row.pack(fill="x",pady=(2,10))
@@ -752,14 +837,12 @@ class ContactsDialog(tk.Toplevel):
                   font=("Segoe UI",8,"bold"),cursor="hand2",
                   padx=8,pady=4).pack(side="left",padx=6)
 
-        # ── email ──
         tk.Label(self.detail,text="Client Email:",bg=WHITE,fg="#607080",
                  font=("Segoe UI",8,"bold")).pack(anchor="w")
         self.entry_email=tk.Entry(self.detail,font=("Segoe UI",10),width=42)
         self.entry_email.insert(0,data.get("email",""))
         self.entry_email.pack(anchor="w",pady=(2,4))
 
-        # show current saved email as hint
         saved=data.get("email","")
         hint_txt="No email saved yet" if not saved else f"Saved: {saved}"
         hint_col=RED_DARK if not saved else GREEN_DARK
@@ -780,7 +863,6 @@ class ContactsDialog(tk.Toplevel):
             messagebox.showinfo("No Change","Name is the same.",parent=self); return
         if new_name in self.contacts:
             messagebox.showwarning("Duplicate",f"'{new_name}' already exists.",parent=self); return
-        # rename in dict
         self.contacts[new_name]=self.contacts.pop(old_name)
         self._current_name=new_name
         self._filter_list()
@@ -878,7 +960,6 @@ class ContactsDialog(tk.Toplevel):
     def _save(self):
         save_contacts(self.contacts)
         self.on_save(self.contacts)
-        # Push to Google Sheet in background thread
         def _push():
             ok, msg = push_contacts_to_sheet(self.contacts)
             if ok:
@@ -949,6 +1030,13 @@ class SarestockPage(tk.Frame):
                                   font=("Segoe UI",8)); self.lbl_outdir.pack(side="left",padx=6)
         tk.Button(path_row,text="Change…",command=self._pick_outdir,bg="#1A3A6B",fg="#90CAF9",
                   relief="flat",font=("Segoe UI",8),cursor="hand2",padx=6,pady=2).pack(side="left")
+
+        # ── Clear Uploads button ─────────────────────────────────────────────
+        tk.Button(path_row, text="🗑  Clear Uploads", command=self._clear_uploads,
+                  bg=RED_DARK, fg=WHITE, relief="flat",
+                  font=("Segoe UI", 8, "bold"), cursor="hand2",
+                  padx=8, pady=2).pack(side="right")
+
         btn_row=tk.Frame(bar,bg=BOTTOM); btn_row.pack(fill="x",padx=16)
         btn_row.columnconfigure(0,weight=1); btn_row.columnconfigure(1,weight=1); btn_row.columnconfigure(2,weight=2)
         self.btn_email=tk.Button(btn_row,text="✉  Send — ZSE Only",command=self._send_email,
@@ -965,6 +1053,50 @@ class SarestockPage(tk.Frame):
         self.btn_email_both.grid(row=0,column=2,sticky="ew")
         tk.Label(bar,text="Each email attaches: Matched Trades PDF + original file  ·  Pre-fills To, CC and Subject",
                  bg=BOTTOM,fg="#5D7A99",font=("Segoe UI",8)).pack(pady=(4,0))
+
+    # ── NEW: clear both upload columns back to blank state ───────────────────
+    def _clear_uploads(self):
+        has_data = bool(self.source_path or self.source_path2)
+        if not has_data:
+            messagebox.showinfo("Nothing to Clear", "No files are currently loaded.")
+            return
+        if not messagebox.askyesno(
+                "Clear Uploads",
+                "Clear all uploaded matched trades files and start fresh?\n\n"
+                "This does NOT delete any files from disk."):
+            return
+        # ── wipe column 1 ──
+        self.raw_rows=[]; self.raw_headers=[]; self.conv_rows=[]
+        self.source_path=None
+        self.gen_csv=self.gen_pdf=self.gen_mt_xlsx=None
+        # ── wipe column 2 ──
+        self.raw_rows2=[]; self.raw_headers2=[]; self.conv_rows2=[]
+        self.source_path2=None
+        self.gen_csv2=self.gen_pdf2=self.gen_mt_xlsx2=None
+        # ── hide previews ──
+        self.prev_outer1.pack_forget()
+        self.prev_outer2.pack_forget()
+        # ── reset info bars ──
+        for w in self.info_bar1.winfo_children(): w.pack_forget()
+        self.info_bar1.pack_forget()
+        for w in self.info_bar2.winfo_children(): w.pack_forget()
+        self.info_bar2.pack_forget()
+        # ── reset download labels ──
+        self.lbl_csv_done.config(text="")
+        self.lbl_pdf_done.config(text="")
+        self.lbl_csv2_done.config(text="")
+        self.lbl_pdf2_done.config(text="")
+        self.btn_csv.config(text="⬇  Download CSV", bg=FBC_MID, state="disabled")
+        self.btn_pdf.config(text="⬇  Download PDF", bg=RED_DARK, state="disabled")
+        self.btn_csv2.config(text="⬇  Download CSV", bg=FBC_MID, state="disabled")
+        self.btn_pdf2.config(text="⬇  Download PDF", bg=RED_DARK, state="disabled")
+        # ── disable email buttons ──
+        for b in (self.btn_email, self.btn_email2, self.btn_email_both):
+            b.config(state="disabled")
+        self.btn_email.config(text="✉  Send — ZSE Only")
+        self.btn_email2.config(text="✉  Send — VFEX Only")
+        self._refresh_ticket()
+        messagebox.showinfo("Cleared", "✅  Both upload slots cleared. Ready for a new upload.")
 
     def _build_left_column(self):
         p=self.left_body
@@ -1144,7 +1276,9 @@ class SarestockPage(tk.Frame):
             self.gen_mt_xlsx=generate_matched_excel(self.source_path,self.raw_rows,self.out_dir)
 
     def _send_email(self):
-        try: self._ensure_email_files(); open_sarestock_outlook([self.gen_pdf,self.gen_mt_xlsx])
+        try:
+            self._ensure_email_files()
+            open_sarestock_outlook([self.gen_pdf,self.gen_mt_xlsx], sender_name=load_sender_name())
         except ImportError: messagebox.showerror("pywin32 not installed","Run:  pip install pywin32")
         except Exception as e: messagebox.showerror("Outlook Error",str(e))
 
@@ -1202,14 +1336,17 @@ class SarestockPage(tk.Frame):
             self.gen_mt_xlsx2=generate_matched_excel(self.source_path2,self.raw_rows2,self.out_dir)
 
     def _send_email2(self):
-        try: self._ensure_email_files2(); open_sarestock_outlook([self.gen_pdf2,self.gen_mt_xlsx2])
+        try:
+            self._ensure_email_files2()
+            open_sarestock_outlook([self.gen_pdf2,self.gen_mt_xlsx2], sender_name=load_sender_name())
         except ImportError: messagebox.showerror("pywin32 not installed","Run:  pip install pywin32")
         except Exception as e: messagebox.showerror("Outlook Error",str(e))
 
     def _send_email_both(self):
         try:
             self._ensure_email_files(); self._ensure_email_files2()
-            open_sarestock_outlook([self.gen_pdf,self.gen_mt_xlsx,self.gen_pdf2,self.gen_mt_xlsx2])
+            open_sarestock_outlook([self.gen_pdf,self.gen_mt_xlsx,self.gen_pdf2,self.gen_mt_xlsx2],
+                                   sender_name=load_sender_name())
         except ImportError: messagebox.showerror("pywin32 not installed","Run:  pip install pywin32")
         except Exception as e: messagebox.showerror("Outlook Error",str(e))
 
@@ -1220,14 +1357,7 @@ class SarestockPage(tk.Frame):
     def _reset(self):
         if messagebox.askyesno("Reset Counter","Reset ticket counter?\n\nOnly do this if Sarestock has also been reset."):
             reset_counter()
-            self.raw_rows=[]; self.raw_headers=[]; self.conv_rows=[]
-            self.gen_csv=self.gen_pdf=self.gen_mt_xlsx=None; self.source_path=None
-            self.raw_rows2=[]; self.raw_headers2=[]; self.conv_rows2=[]
-            self.gen_csv2=self.gen_pdf2=self.gen_mt_xlsx2=None; self.source_path2=None
-            self.prev_outer1.pack_forget(); self.prev_outer2.pack_forget()
-            for b in (self.btn_csv,self.btn_pdf,self.btn_email,
-                      self.btn_csv2,self.btn_pdf2,self.btn_email2,self.btn_email_both):
-                b.config(state="disabled")
+            self._clear_uploads()   # reuse the clear logic to also wipe UI
             self._refresh_ticket()
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1237,10 +1367,10 @@ class EmailerPage(tk.Frame):
     def __init__(self,parent):
         super().__init__(parent,bg=BG)
         self.contacts=load_contacts(); self.deal_items=[]; self.pdf_folder=""
+        self.sender_name = load_sender_name()
         self._build()
 
     def _build(self):
-        # top bar
         bar=tk.Frame(self,bg=FBC_MID,padx=16,pady=8); bar.pack(fill="x")
         tk.Label(bar,text="✉  Deal Note Email Automator",bg=FBC_MID,fg=WHITE,
                  font=("Segoe UI",11,"bold")).pack(side="left")
@@ -1248,10 +1378,35 @@ class EmailerPage(tk.Frame):
                   bg=FBC_DARK,fg=WHITE,relief="flat",font=("Segoe UI",9,"bold"),
                   cursor="hand2",padx=10,pady=4).pack(side="right",padx=4)
 
-        # ── upload panel ─────────────────────────────────────────────────────
+        # ── Sender name strip ────────────────────────────────────────────────
+        name_bar = tk.Frame(self, bg=FBC_DARK, padx=16, pady=6)
+        name_bar.pack(fill="x")
+        tk.Label(name_bar, text="✍  Your Name (used in email sign-off):",
+                 bg=FBC_DARK, fg=SIDEBAR_TEXT, font=("Segoe UI", 9, "bold")).pack(side="left")
+        self._sender_var = tk.StringVar(value=self.sender_name)
+        name_entry = tk.Entry(name_bar, textvariable=self._sender_var,
+                              font=("Segoe UI", 10), bg="#0D2B4E", fg=WHITE,
+                              insertbackground=WHITE, relief="flat",
+                              highlightbackground=FBC_MID, highlightthickness=1,
+                              width=26)
+        name_entry.pack(side="left", padx=(8, 6), ipady=4)
+        tk.Button(name_bar, text="💾  Save Name", command=self._save_sender_name,
+                  bg=GREEN_DARK, fg=WHITE, relief="flat",
+                  font=("Segoe UI", 9, "bold"), cursor="hand2",
+                  padx=10, pady=4).pack(side="left")
+        self.lbl_name_saved = tk.Label(name_bar, text="", bg=FBC_DARK, fg="#90EE90",
+                                       font=("Segoe UI", 8))
+        self.lbl_name_saved.pack(side="left", padx=8)
+        # Show saved name hint on right
+        self.lbl_name_hint = tk.Label(name_bar,
+            text=f"Saved: {self.sender_name}" if self.sender_name else "⚠ No name saved yet",
+            bg=FBC_DARK,
+            fg="#90CAF9" if self.sender_name else "#FF9966",
+            font=("Segoe UI", 8))
+        self.lbl_name_hint.pack(side="right")
+
         fp=tk.Frame(self,bg=WHITE,padx=16,pady=12); fp.pack(fill="x",padx=16,pady=(12,0))
 
-        # row 1: upload buttons
         btn_row=tk.Frame(fp,bg=WHITE); btn_row.pack(fill="x")
         tk.Button(btn_row,text="📂  Choose Deal Notes Folder",command=self._pick_folder,
                   bg=FBC_MID,fg=WHITE,relief="flat",font=("Segoe UI",10,"bold"),
@@ -1264,13 +1419,11 @@ class EmailerPage(tk.Frame):
                   bg="#4051B5",fg=WHITE,relief="flat",font=("Segoe UI",10,"bold"),
                   cursor="hand2",padx=14,pady=8).pack(side="left")
 
-        # clear all button
         self.btn_clear=tk.Button(btn_row,text="🗑  Clear All Uploads",command=self._clear_uploads,
                   bg=RED_DARK,fg=WHITE,relief="flat",font=("Segoe UI",9,"bold"),
                   cursor="hand2",padx=10,pady=8,state="disabled")
         self.btn_clear.pack(side="right")
 
-        # row 2: status labels
         info_row=tk.Frame(fp,bg=WHITE); info_row.pack(fill="x",pady=(6,0))
         self.lbl_folder=tk.Label(info_row,text="No files loaded",bg=WHITE,fg="#8096B0",font=("Segoe UI",9))
         self.lbl_folder.pack(side="left")
@@ -1279,7 +1432,6 @@ class EmailerPage(tk.Frame):
         self.lbl_file_list=tk.Label(info_row,text="",bg=WHITE,fg="#607080",font=("Segoe UI",8))
         self.lbl_file_list.pack(side="left")
 
-        # tabs
         style=ttk.Style()
         style.configure("TNotebook.Tab",font=("Segoe UI",10,"bold"),padding=[14,6])
         nb=ttk.Notebook(self); nb.pack(fill="both",expand=True,padx=16,pady=10)
@@ -1290,7 +1442,6 @@ class EmailerPage(tk.Frame):
         self._build_custodian_tab()
         self._build_client_tab()
 
-    # ── CUSTODIAN TAB ──
     def _build_custodian_tab(self):
         p=self.tab_cust
         tk.Label(p,text="Groups all PDFs by custodian → one email per custodian with all their deal notes attached.",
@@ -1354,7 +1505,7 @@ class EmailerPage(tk.Frame):
         items=[it for it in self.deal_items if it["custodian"]==code]
         count=len(items)
         subj=f"DEAL NOTE{'S' if count>1 else ''} — {datetime.now().strftime('%d %b %Y')}"
-        body=CUSTODIAN_BODY_MULTI if count>1 else CUSTODIAN_BODY_SINGLE
+        body=get_custodian_body(multi=(count>1), sender_name=self._get_sender())
         try:
             open_outlook(routing["to"],routing["cc"],subj,body,[it["path"] for it in items])
             if code in self.cust_btn_map: self.cust_btn_map[code].config(text="✅  Sent",bg="#2E7D32")
@@ -1368,7 +1519,6 @@ class EmailerPage(tk.Frame):
         for code in codes: self._cust_send_one(code)
         messagebox.showinfo("Done",f"✅  {len(codes)} Outlook window(s) opened.")
 
-    # ── CLIENT TAB ──
     def _build_client_tab(self):
         p=self.tab_client
         tk.Label(p,text="Sends one email per client with all their deal notes attached. Add emails via 'Manage Client Contacts'.",
@@ -1397,14 +1547,10 @@ class EmailerPage(tk.Frame):
         for item in self.deal_items:
             contact = find_contact(self.contacts, item["client"])
             email   = contact.get("email", "")
-            # Resolve the canonical key: prefer the saved contact name so that
-            # "MAKWASHA TANYARADZWA" (from filename) maps to "TANYARADZWA MAKWASHA"
-            # (as saved in contacts), keeping the UI consistent.
             key = item["client"]
             for saved in self.contacts:
                 if _names_match(item["client"], saved):
                     key = saved; break
-            # Legacy prefix fallback
             if key == item["client"]:
                 for saved in self.contacts:
                     if item["client"].startswith(saved) or saved.startswith(item["client"]):
@@ -1464,7 +1610,7 @@ class EmailerPage(tk.Frame):
             messagebox.showwarning("Missing Email",f"No email for '{client_name}'.\n\nUse 'Manage Client Contacts'."); return
         count=len(grp["items"])
         subj=f"DEAL{'S' if count>1 else ''} CONFIRMATION"
-        body=(CLIENT_BODY_MULTI if count>1 else CLIENT_BODY_SINGLE).format(client=client_name.title())
+        body=get_client_body(client=client_name.title(), multi=(count>1), sender_name=self._get_sender())
         paths=[it["path"] for it in grp["items"]]
         try:
             open_outlook([grp["email"]],CLIENT_CC,subj,body,paths)
@@ -1501,6 +1647,22 @@ class EmailerPage(tk.Frame):
         self.contacts=new_contacts
         if self.deal_items: self._render_client_tab()
 
+    def _save_sender_name(self):
+        name = self._sender_var.get().strip()
+        if not name:
+            messagebox.showwarning("Empty Name",
+                "Please enter your name before saving.", parent=self)
+            return
+        self.sender_name = name
+        save_sender_name(name)
+        self.lbl_name_saved.config(text="✅ Saved!")
+        self.lbl_name_hint.config(text=f"Saved: {name}", fg="#90CAF9")
+        self.after(2500, lambda: self.lbl_name_saved.config(text=""))
+
+    def _get_sender(self):
+        """Return the current sender name from the entry box (live value)."""
+        return self._sender_var.get().strip() or self.sender_name or "FBC Securities"
+
     def _pick_folder(self):
         folder=filedialog.askdirectory(title="Select folder containing deal note PDFs")
         if not folder: return
@@ -1520,14 +1682,12 @@ class EmailerPage(tk.Frame):
             filetypes=[("PDF files","*.pdf"),("All files","*.*")])
         if not paths: return
         pdf_paths=list(paths)
-        # add to existing items (don't wipe, let user accumulate)
         already={it["path"] for it in self.deal_items}
         new_paths=[p for p in pdf_paths if p not in already]
         if not new_paths:
             messagebox.showinfo("No New Files","All selected files are already loaded."); return
         self.lbl_found.config(text=f"Scanning {len(new_paths)} new PDF(s)…")
         self.btn_clear.config(state="normal")
-        # show short names
         names=", ".join(os.path.basename(p) for p in new_paths[:3])
         if len(new_paths)>3: names+=f" +{len(new_paths)-3} more"
         self.lbl_folder.config(text=f"📄  {names}",fg=FBC_DARK)
@@ -1545,7 +1705,6 @@ class EmailerPage(tk.Frame):
         self.lbl_file_list.config(text="")
         self.btn_clear.config(state="disabled")
         self._disable_send_buttons()
-        # clear rendered tabs
         for w in self.cust_body.winfo_children(): w.destroy()
         for w in self.client_body.winfo_children(): w.destroy()
         self.lbl_cust_hint.config(text="Load files above to begin.",fg="#607080")
@@ -1563,8 +1722,6 @@ class EmailerPage(tk.Frame):
         items=[]
         for fname in pdfs:
             path=os.path.join(folder,fname)
-            # Try to read client name from inside the PDF first (most accurate)
-            # Fall back to filename if PDF extraction fails
             client_from_pdf = parse_client_name_from_pdf(path)
             client = client_from_pdf if client_from_pdf else parse_client_name_from_filename(fname)
             items.append({
@@ -1578,7 +1735,6 @@ class EmailerPage(tk.Frame):
         self._after_scan(len(items))
 
     def _scan_files(self,paths):
-        """Scan individually selected files and append to existing deal_items."""
         new_items=[]
         for path in paths:
             fname=os.path.basename(path)
@@ -1612,12 +1768,10 @@ class App(tk.Tk):
         self._build()
 
     def _build(self):
-        # ── sidebar ──
         sidebar = tk.Frame(self, bg=SIDEBAR_BG, width=200)
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
 
-        # logo area
         logo = tk.Frame(sidebar, bg=SIDEBAR_BG, pady=20)
         logo.pack(fill="x")
         tk.Label(logo, text="FBC", bg=FBC_ACCENT, fg=WHITE,
@@ -1625,10 +1779,8 @@ class App(tk.Tk):
         tk.Label(logo, text="Suite", bg=SIDEBAR_BG, fg=SIDEBAR_TEXT,
                  font=("Segoe UI",10)).pack(pady=(4,0))
 
-        # divider
         tk.Frame(sidebar, bg=FBC_MID, height=1).pack(fill="x", padx=16, pady=(0,10))
 
-        # nav buttons
         self.nav_buttons = {}
         nav_items = [
             ("📊", "Converter", "converter"),
@@ -1650,31 +1802,24 @@ class App(tk.Tk):
                 bg=SIDEBAR_ACTIVE if self._active_page==k else SIDEBAR_BG))
             self.nav_buttons[key] = btn
 
-        # bottom version label
         tk.Label(sidebar, text=f"v{VERSION}", bg=SIDEBAR_BG, fg="#2A4A6A",
                  font=("Segoe UI",8)).pack(side="bottom", pady=10)
 
-        # ── content area ──
         self.content = tk.Frame(self, bg=BG)
         self.content.pack(side="left", fill="both", expand=True)
 
-        # create pages (hidden initially)
         self.pages = {
             "converter": SarestockPage(self.content),
             "emailer":   EmailerPage(self.content),
         }
 
-        # start on converter
         self._switch("converter")
 
     def _switch(self, key):
-        # hide all pages
         for page in self.pages.values():
             page.pack_forget()
-        # show selected
         self.pages[key].pack(fill="both", expand=True)
         self._active_page = key
-        # update sidebar button highlights
         for k, btn in self.nav_buttons.items():
             if k == key:
                 btn.config(bg=SIDEBAR_ACTIVE, fg=WHITE)
@@ -1686,5 +1831,14 @@ class App(tk.Tk):
 # ════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     check_and_apply_update()
+
+    # ── Show login screen before opening the main app ──────────────────────
+    login = LoginDialog()
+    login.mainloop()
+
+    if not login.authenticated:
+        sys.exit(0)   # User closed window or exhausted attempts
+
+    # ── All good — launch the main application ─────────────────────────────
     app = App()
     app.mainloop()
