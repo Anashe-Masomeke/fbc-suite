@@ -13,7 +13,7 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 import sys, os, subprocess, urllib.request
 
-VERSION       = 21
+VERSION       = 22
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
@@ -148,7 +148,7 @@ SIDEBAR_TEXT_ON = "#FFFFFF"
 # ════════════════════════════════════════════════════════════════════════════
 #  LOGIN DIALOG
 # ════════════════════════════════════════════════════════════════════════════
-APP_PASSWORD = "pope"
+APP_PASSWORD = "anashe"
 MAX_ATTEMPTS = 6
 
 class LoginDialog(tk.Tk):
