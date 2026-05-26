@@ -13,7 +13,7 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 import sys, os, subprocess, urllib.request
 
-VERSION       = 22
+VERSION       = 23
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
@@ -508,7 +508,7 @@ def push_contacts_to_sheet(contacts):
         for name, data in sorted(contacts.items()):
             rows.append([name, data.get("email", "")])
         ws.clear()
-        ws.update("A1", rows)
+        ws.update(range_name="A1", values=rows)
         return True, f"Synced {len(contacts)} contacts to Google Sheets"
     except Exception as e:
         return False, str(e)
@@ -1368,6 +1368,8 @@ class EmailerPage(tk.Frame):
         super().__init__(parent,bg=BG)
         self.contacts=load_contacts(); self.deal_items=[]; self.pdf_folder=""
         self.sender_name = load_sender_name()
+        self.sent_custodians = set()   # tracks custodian codes already sent
+        self.sent_clients    = set()   # tracks client names already sent
         self._build()
 
     def _build(self):
@@ -1446,7 +1448,7 @@ class EmailerPage(tk.Frame):
         p=self.tab_cust
         tk.Label(p,text="Groups all PDFs by custodian → one email per custodian with all their deal notes attached.",
                  bg=BG,fg="#607080",font=("Segoe UI",9)).pack(anchor="w",padx=16,pady=(10,0))
-        self.btn_send_all_cust=tk.Button(p,text="✉  Send ALL Custodian Emails",
+        self.btn_send_all_cust=tk.Button(p,text="⏳  Send ALL Custodian Emails",
             command=self._cust_send_all,bg=GREEN_DARK,fg=WHITE,font=("Segoe UI",11,"bold"),
             relief="flat",padx=16,pady=10,cursor="hand2",state="disabled")
         self.btn_send_all_cust.pack(fill="x",padx=16,pady=(8,4))
@@ -1468,34 +1470,53 @@ class EmailerPage(tk.Frame):
         for item in self.deal_items: groups.setdefault(item["custodian"],[]).append(item)
         for code,items in sorted(groups.items()):
             routing=CUSTODIAN_ROUTING.get(code)
-            head_color=FBC_MID if routing else RED_DARK
-            card=tk.Frame(self.cust_body,bg=WHITE,pady=0,padx=0)
+            sent = code in self.sent_custodians
+            # colour scheme: green tint if sent, blue/red if not
+            if sent:
+                head_color = "#1A6B3A"
+                card_bg    = "#F0FBF4"
+            else:
+                head_color = FBC_MID if routing else RED_DARK
+                card_bg    = WHITE
+            card=tk.Frame(self.cust_body,bg=card_bg,pady=0,padx=0)
             card.pack(fill="x",padx=4,pady=(0,10))
             head=tk.Frame(card,bg=head_color,pady=7,padx=12); head.pack(fill="x")
             label=routing["label"] if routing else "UNKNOWN CUSTODIAN"
             count=len(items)
-            tk.Label(head,text=f"{code}  —  {label}",bg=head_color,fg=WHITE,
+            status_badge = "  ✅ SENT" if sent else ""
+            tk.Label(head,text=f"{code}  —  {label}{status_badge}",bg=head_color,fg=WHITE,
                      font=("Segoe UI",10,"bold")).pack(side="left")
             tk.Label(head,text=f"{count} deal note{'s' if count>1 else ''}",
                      bg=head_color,fg=WHITE,font=("Segoe UI",9)).pack(side="right")
-            inner=tk.Frame(card,bg=WHITE,padx=12,pady=8); inner.pack(fill="x")
+            inner=tk.Frame(card,bg=card_bg,padx=12,pady=8); inner.pack(fill="x")
             for it in items:
-                tk.Label(inner,text=f"  📄 {it['fname']}",bg=WHITE,fg="#2D3748",font=("Segoe UI",9)).pack(anchor="w")
+                tk.Label(inner,text=f"  📄 {it['fname']}",bg=card_bg,fg="#2D3748",font=("Segoe UI",9)).pack(anchor="w")
             if routing:
                 subj=f"DEAL NOTE{'S' if count>1 else ''} — {datetime.now().strftime('%d %b %Y')}"
-                tk.Label(inner,text=f"Subject: {subj}",bg=WHITE,fg="#607080",font=("Segoe UI",8,"italic")).pack(anchor="w",pady=(6,0))
-                tk.Label(inner,text=f"To: {'; '.join(routing['to'])}",bg=WHITE,fg="#607080",font=("Segoe UI",8)).pack(anchor="w")
-                btn=tk.Button(inner,text=f"✉  Open in Outlook  ({count} file{'s' if count>1 else ''} attached)",
-                    command=lambda c=code:self._cust_send_one(c),bg=FBC_MID,fg=WHITE,relief="flat",
-                    font=("Segoe UI",9,"bold"),cursor="hand2",padx=10,pady=6)
+                tk.Label(inner,text=f"Subject: {subj}",bg=card_bg,fg="#607080",font=("Segoe UI",8,"italic")).pack(anchor="w",pady=(6,0))
+                tk.Label(inner,text=f"To: {'; '.join(routing['to'])}",bg=card_bg,fg="#607080",font=("Segoe UI",8)).pack(anchor="w")
+                btn_text = f"✅  Sent  ({count} file{'s' if count>1 else ''} attached)" if sent \
+                           else f"⏳  Open in Outlook  ({count} file{'s' if count>1 else ''} attached)"
+                btn_bg   = "#2E7D32" if sent else FBC_MID
+                btn=tk.Button(inner,text=btn_text,
+                    command=lambda c=code:self._cust_send_one(c),bg=btn_bg,fg=WHITE,relief="flat",
+                    font=("Segoe UI",9,"bold"),
+                    cursor="arrow" if sent else "hand2",
+                    state="disabled" if sent else "normal",
+                    disabledforeground=WHITE,
+                    padx=10,pady=6)
+                if sent:
+                    btn.config(bg="#2E7D32")
                 btn.pack(anchor="w",pady=(8,0)); self.cust_btn_map[code]=btn
             else:
                 tk.Label(inner,text="⚠  No routing configured for this custodian code.",
-                         bg=WHITE,fg=RED_DARK,font=("Segoe UI",9)).pack(anchor="w")
+                         bg=card_bg,fg=RED_DARK,font=("Segoe UI",9)).pack(anchor="w")
         known=sum(1 for c in groups if c in CUSTODIAN_ROUTING)
+        unsent=sum(1 for c in groups if c in CUSTODIAN_ROUTING and c not in self.sent_custodians)
         self.btn_send_all_cust.config(
-            state="normal" if known else "disabled",
-            text=f"✉  Send ALL {known} Custodian Email{'s' if known!=1 else ''} in Outlook")
+            state="normal" if unsent else "disabled",
+            text=f"⏳  Send ALL {known} Custodian Email{'s' if known!=1 else ''} in Outlook"
+                 + (f"  ({known - unsent} already sent)" if known > unsent else ""))
         self.lbl_cust_hint.config(
             text=f"✅  {len(self.deal_items)} deal note(s) across {len(groups)} custodian(s).",fg=GREEN_DARK)
 
@@ -1508,13 +1529,19 @@ class EmailerPage(tk.Frame):
         body=get_custodian_body(multi=(count>1), sender_name=self._get_sender())
         try:
             open_outlook(routing["to"],routing["cc"],subj,body,[it["path"] for it in items])
-            if code in self.cust_btn_map: self.cust_btn_map[code].config(text="✅  Sent",bg="#2E7D32")
+            self.sent_custodians.add(code)
+            if code in self.cust_btn_map:
+                self.cust_btn_map[code].config(text="✅  Sent",bg="#2E7D32")
+                # re-render to apply green card tint
+                self.after(300, self._render_custodian_tab)
         except ImportError as e: messagebox.showerror("pywin32 not installed",str(e))
         except Exception as e: messagebox.showerror("Outlook Error",str(e))
 
     def _cust_send_all(self):
-        codes=sorted(set(it["custodian"] for it in self.deal_items if it["custodian"] in CUSTODIAN_ROUTING))
-        if not codes: messagebox.showinfo("Nothing","No known custodians found."); return
+        codes=sorted(set(it["custodian"] for it in self.deal_items
+                         if it["custodian"] in CUSTODIAN_ROUTING
+                         and it["custodian"] not in self.sent_custodians))
+        if not codes: messagebox.showinfo("Nothing","No unsent custodian emails found."); return
         if not messagebox.askyesno("Send All",f"Open {len(codes)} Outlook window(s), one per custodian?\n\nContinue?"): return
         for code in codes: self._cust_send_one(code)
         messagebox.showinfo("Done",f"✅  {len(codes)} Outlook window(s) opened.")
@@ -1527,7 +1554,7 @@ class EmailerPage(tk.Frame):
             command=self._send_everything,bg=FBC_DARK,fg=WHITE,font=("Segoe UI",11,"bold"),
             relief="flat",padx=16,pady=10,cursor="hand2",state="disabled")
         self.btn_send_everything.pack(fill="x",padx=16,pady=(8,2))
-        self.btn_send_all_client=tk.Button(p,text="✉  Send ALL Client Emails",
+        self.btn_send_all_client=tk.Button(p,text="⏳  Send ALL Client Emails",
             command=self._client_send_all,bg=GREEN_DARK,fg=WHITE,font=("Segoe UI",11,"bold"),
             relief="flat",padx=16,pady=10,cursor="hand2",state="disabled")
         self.btn_send_all_client.pack(fill="x",padx=16,pady=(2,4))
@@ -1577,25 +1604,48 @@ class EmailerPage(tk.Frame):
         for i,(client_name,grp) in enumerate(groups.items()):
             email=grp["email"]; status=grp["status"]; count=len(grp["items"])
             custodians=", ".join(sorted(set(it["custodian"] for it in grp["items"])))
-            bg="#F8FBFF" if i%2==0 else WHITE
+            sent = client_name in self.sent_clients
+            # green tint for sent rows, alternating white/light blue for unsent
+            if sent:
+                bg = "#E8F8EE"
+            else:
+                bg = "#F8FBFF" if i%2==0 else WHITE
             row=tk.Frame(self.client_body,bg=bg); row.pack(fill="x")
-            sc=GREEN_DARK if status=="ready" else RED_DARK
-            st="✅ Ready" if status=="ready" else "⚠ Missing"
+            # Status label — show pending/sent/missing state clearly
+            if sent:
+                sc = "#2E7D32"; st = "✅ Sent"
+            elif status == "ready":
+                sc = FBC_MID; st = "⏳ Pending"
+            else:
+                sc = RED_DARK; st = "⚠ Missing"
             file_label=f"{count} file{'s' if count>1 else ''}"
             for v,w in zip([str(i+1),client_name[:20],file_label,custodians[:10],email[:24] or "—",st],widths):
                 tk.Label(row,text=v,bg=bg,fg=(sc if v==st else "#2D3748"),
                          font=("Segoe UI",8),width=w,anchor="w",padx=4,pady=5).pack(side="left")
-            sent=grp.get("sent",False)
-            btn=tk.Button(row,text="✅ Sent" if sent else "✉ Send",
-                bg="#2E7D32" if sent else FBC_MID,fg=WHITE,relief="flat",
-                font=("Segoe UI",8,"bold"),cursor="hand2",padx=6,pady=3,
-                command=lambda cn=client_name:self._client_send_group(cn))
+            # Action button — pending shows send icon, sent shows checkmark and is locked
+            if sent:
+                btn=tk.Button(row,text="✅ Sent",
+                    bg="#2E7D32",fg=WHITE,relief="flat",
+                    font=("Segoe UI",8,"bold"),
+                    cursor="arrow",padx=6,pady=3,
+                    state="disabled",disabledforeground=WHITE)
+                btn.config(bg="#2E7D32")
+            else:
+                btn=tk.Button(row,text="✉ Send",
+                    bg=FBC_MID,fg=WHITE,relief="flat",
+                    font=("Segoe UI",8,"bold"),
+                    cursor="hand2",padx=6,pady=3,
+                    state="normal" if status=="ready" else "disabled",
+                    disabledforeground="#8096B0",
+                    command=lambda cn=client_name:self._client_send_group(cn))
             btn.pack(side="left",padx=4); self.client_group_btns[client_name]=btn
         ready=sum(1 for g in groups.values() if g["status"]=="ready")
+        unsent_ready=sum(1 for cn,g in groups.items() if g["status"]=="ready" and cn not in self.sent_clients)
         missing=len(groups)-ready
         self.btn_send_all_client.config(
-            state="normal" if ready else "disabled",
-            text=f"✉  Send ALL {ready} Client Email{'s' if ready!=1 else ''} in Outlook")
+            state="normal" if unsent_ready else "disabled",
+            text=f"⏳  Send ALL {ready} Client Email{'s' if ready!=1 else ''} in Outlook"
+                 + (f"  ({ready - unsent_ready} already sent)" if ready > unsent_ready else ""))
         self.btn_send_everything.config(
             state="normal" if ready or any(it["custodian"] in CUSTODIAN_ROUTING for it in self.deal_items) else "disabled")
         self.lbl_client_hint.config(
@@ -1614,15 +1664,19 @@ class EmailerPage(tk.Frame):
         paths=[it["path"] for it in grp["items"]]
         try:
             open_outlook([grp["email"]],CLIENT_CC,subj,body,paths)
-            grp["sent"]=True
+            self.sent_clients.add(client_name)
             if client_name in self.client_group_btns:
                 self.client_group_btns[client_name].config(text="✅ Sent",bg="#2E7D32")
+            # re-render after a short delay to apply green row tint
+            self.after(300, self._render_client_tab)
         except ImportError as e: messagebox.showerror("pywin32 not installed",str(e))
         except Exception as e: messagebox.showerror("Outlook Error",str(e))
 
     def _client_send_all(self):
-        groups=self._client_groups(); ready=[cn for cn,g in groups.items() if g["status"]=="ready"]
-        if not ready: messagebox.showinfo("Nothing","No clients with emails found."); return
+        groups=self._client_groups()
+        ready=[cn for cn,g in groups.items()
+               if g["status"]=="ready" and cn not in self.sent_clients]
+        if not ready: messagebox.showinfo("Nothing","No unsent clients with emails found."); return
         if not messagebox.askyesno("Send All Client Emails",f"Open {len(ready)} Outlook window(s), one per client?\n\nContinue?"): return
         for cn in ready: self._client_send_group(cn)
         messagebox.showinfo("Done",f"✅  {len(ready)} Outlook window(s) opened.")
@@ -1700,17 +1754,20 @@ class EmailerPage(tk.Frame):
             return
         self.deal_items=[]
         self.pdf_folder=""
+        self.sent_custodians.clear()
+        self.sent_clients.clear()
         self.lbl_folder.config(text="No files loaded",fg="#8096B0")
         self.lbl_found.config(text="")
         self.lbl_file_list.config(text="")
         self.btn_clear.config(state="disabled")
         self._disable_send_buttons()
         for w in self.cust_body.winfo_children(): w.destroy()
+        self.btn_send_all_cust.config(state="disabled",text="⏳  Send ALL Custodian Emails")
         for w in self.client_body.winfo_children(): w.destroy()
         self.lbl_cust_hint.config(text="Load files above to begin.",fg="#607080")
         self.lbl_client_hint.config(text="Load files above to begin.",fg="#607080")
-        self.btn_send_all_cust.config(state="disabled",text="✉  Send ALL Custodian Emails")
-        self.btn_send_all_client.config(state="disabled",text="✉  Send ALL Client Emails")
+        self.btn_send_all_cust.config(state="disabled",text="⏳  Send ALL Custodian Emails")
+        self.btn_send_all_client.config(state="disabled",text="⏳  Send ALL Client Emails")
         self.btn_send_everything.config(state="disabled")
 
     def _disable_send_buttons(self):
