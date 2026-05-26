@@ -6,6 +6,9 @@ FBC Suite — Combined Desktop App
 
 Requirements:
     pip install pandas openpyxl fpdf2 pywin32 pymupdf gspread google-auth
+
+    updating new .exe file:
+    pyinstaller --onefile --noconsole fbc_suite.py --name fbc-suite
 """
 
 # ════════════════════════════════════════════════════════════════════════════
