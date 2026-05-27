@@ -16,7 +16,7 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 import sys, os, subprocess, urllib.request
 
-VERSION       = 23
+VERSION       = 24
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
@@ -151,7 +151,7 @@ SIDEBAR_TEXT_ON = "#FFFFFF"
 # ════════════════════════════════════════════════════════════════════════════
 #  LOGIN DIALOG
 # ════════════════════════════════════════════════════════════════════════════
-APP_PASSWORD = "anashe"
+APP_PASSWORD = "enock"
 MAX_ATTEMPTS = 6
 
 class LoginDialog(tk.Tk):
@@ -165,7 +165,6 @@ class LoginDialog(tk.Tk):
         self._attempts = 0
         self.authenticated = False
         self._build()
-        # Centre on screen
         self.update_idletasks()
         w, h = 380, 340
         x = (self.winfo_screenwidth()  - w) // 2
@@ -174,7 +173,6 @@ class LoginDialog(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build(self):
-        # ── header ──────────────────────────────────────────────────────────
         hdr = tk.Frame(self, bg=FBC_ACCENT, pady=18)
         hdr.pack(fill="x")
         tk.Label(hdr, text="FBC", bg=FBC_DARK, fg=WHITE,
@@ -182,14 +180,12 @@ class LoginDialog(tk.Tk):
         tk.Label(hdr, text="Suite", bg=FBC_ACCENT, fg=WHITE,
                  font=("Segoe UI", 11)).pack(pady=(2, 0))
 
-        # ── body ────────────────────────────────────────────────────────────
         body = tk.Frame(self, bg=SIDEBAR_BG, padx=36, pady=24)
         body.pack(fill="both", expand=True)
 
         tk.Label(body, text="Enter Password", bg=SIDEBAR_BG, fg=SIDEBAR_TEXT,
                  font=("Segoe UI", 10, "bold")).pack(anchor="w")
 
-        # password entry with show/hide toggle
         pw_row = tk.Frame(body, bg=SIDEBAR_BG)
         pw_row.pack(fill="x", pady=(6, 0))
 
@@ -209,17 +205,14 @@ class LoginDialog(tk.Tk):
                                  padx=6)
         self.btn_eye.pack(side="left")
 
-        # error label (hidden until needed)
         self.lbl_err = tk.Label(body, text="", bg=SIDEBAR_BG, fg="#FF6B6B",
                                 font=("Segoe UI", 9))
         self.lbl_err.pack(anchor="w", pady=(6, 0))
 
-        # attempts indicator
         self.lbl_attempts = tk.Label(body, text="", bg=SIDEBAR_BG, fg="#607080",
                                      font=("Segoe UI", 8))
         self.lbl_attempts.pack(anchor="w")
 
-        # login button
         self.btn_login = tk.Button(body, text="  🔓  Login  ",
                                    command=self._attempt_login,
                                    bg=FBC_MID, fg=WHITE, relief="flat",
@@ -227,10 +220,8 @@ class LoginDialog(tk.Tk):
                                    cursor="hand2", pady=10, activebackground=FBC_ACCENT)
         self.btn_login.pack(fill="x", pady=(16, 0))
 
-        # bind Enter key
         self.entry_pw.bind("<Return>", lambda _: self._attempt_login())
 
-        # ── footer ──────────────────────────────────────────────────────────
         tk.Label(self, text=f"v{VERSION}", bg=SIDEBAR_BG, fg="#2A4A6A",
                  font=("Segoe UI", 8)).pack(side="bottom", pady=6)
 
@@ -260,11 +251,9 @@ class LoginDialog(tk.Tk):
             text=f"  {remaining} attempt{'s' if remaining > 1 else ''} remaining")
         self._pw_var.set("")
         self.entry_pw.focus()
-        # Shake animation
         self._shake()
 
     def _shake(self, times=6, distance=8):
-        """Briefly shake the window left-right."""
         x0 = self.winfo_x()
         y0 = self.winfo_y()
         def step(n):
@@ -302,7 +291,7 @@ def get_sarestock_email_body(sender_name=""):
 SARESTOCK_EMAIL_TO = "Anesu.Zingundu@fbc.co.zw"
 SARESTOCK_EMAIL_CC = ";".join([
     "Enock.Rukarwa@fbc.co.zw","Manatsa.Tagwireyi@fbc.co.zw",
-    "Norman.Chirima@fbc.co.zw","Richard.Mashava@fbc.co.zw"
+    "Norman.Chirima@fbc.co.zw","Richard.Mashava@fbc.co.zw","Anashe.Masomeke@fbc.co.zw"
 ])
 
 FIELD_MAP = [
@@ -394,45 +383,134 @@ def generate_csv(rows, out_dir, label):
             w.writerow({h: r.get(h, "") for h in EO_HEADERS})
     return path
 
-def generate_matched_excel(source_path,raw_rows,out_dir):
-    exch=get_exchange(raw_rows[0].get("Market","")) if raw_rows else ""
-    label="VFEX" if exch=="VFEX" else "ZSE"
-    ext=os.path.splitext(source_path)[1] if source_path else ".xlsx"
-    dest=os.path.join(out_dir,f"MATCHED TRADES, {label}{ext}")
-    _shutil.copy2(source_path,dest); return dest
+def generate_matched_excel(source_path, raw_rows, out_dir):
+    exch = get_exchange(raw_rows[0].get("Market", "")) if raw_rows else ""
+    label = "VFEX" if exch == "VFEX" else "ZSE"
+    ext = os.path.splitext(source_path)[1] if source_path else ".xlsx"
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    dest = os.path.join(out_dir, f"MATCHED TRADES, {label}_{ts}{ext}")
 
-def generate_pdf(raw_rows,raw_headers,out_dir):
-    _require("fpdf","fpdf2")
+    src_norm = os.path.normcase(os.path.abspath(source_path))
+    dst_norm = os.path.normcase(os.path.abspath(dest))
+
+    if src_norm == dst_norm:
+        return dest  # already the right file, just return it
+
+    try:
+        _shutil.copy2(source_path, dest)
+    except PermissionError:
+        raise PermissionError(
+            f"Could not copy '{os.path.basename(source_path)}' — "
+            "please close it in Excel and try again."
+        )
+    return dest
+
+def generate_pdf(raw_rows, raw_headers, out_dir):
+    """
+    Generate a wide single-layout PDF where ALL columns are placed side-by-side
+    on one custom-width page.  No column grouping / no 'Column group X of Y'.
+    Rows that exceed the page HEIGHT overflow to a new page of the same width,
+    with the column header repeated.  Open in any PDF viewer and scroll
+    left/right to see every column.
+    """
+    _require("fpdf", "fpdf2")
     from fpdf import FPDF
-    exch=get_exchange(raw_rows[0].get("Market","")) if raw_rows else ""
-    label="VFEX" if exch=="VFEX" else "ZSE"
-    path=os.path.join(out_dir,f"MATCHED TRADES, {label}.pdf")
-    col_chars=[]
-    for h in raw_headers:
-        mx=len(str(h))
-        for row in raw_rows:
-            v=str(row.get(h,"")); mx=max(mx,len(v))
-        col_chars.append(min(mx,30))
-    FS=6.5; CW=FS*0.52; RH=FS*0.9
-    total_w=sum(c*CW for c in col_chars)+len(col_chars)*2
-    if total_w<277: fmt,orient="A4","L"
-    else: fmt,orient,FS,CW,RH="A3","L",5.5,5.5*0.52,5.5*0.85
-    pdf=FPDF(orientation=orient,unit="mm",format=fmt)
-    pdf.set_margins(6,6,6); pdf.set_auto_page_break(auto=True,margin=10); pdf.add_page()
-    uw=pdf.w-12; cws=[max(c*CW,6) for c in col_chars]
-    sc=uw/sum(cws); cws=[w*sc for w in cws]
-    def _hdr():
-        pdf.set_font("Courier",style="B",size=FS); pdf.set_text_color(0,0,0)
-        for i,h in enumerate(raw_headers): pdf.cell(cws[i],RH,str(h)[:col_chars[i]],border=0,align="L")
-        pdf.ln(); y=pdf.get_y(); pdf.set_draw_color(180,180,180)
-        pdf.line(6,y,pdf.w-6,y); pdf.set_draw_color(0,0,0); pdf.ln(0.5)
-    _hdr(); pdf.set_font("Courier",size=FS)
-    for row in raw_rows:
-        if pdf.get_y()>pdf.h-14: pdf.add_page(); _hdr(); pdf.set_font("Courier",size=FS)
-        for i,h in enumerate(raw_headers):
-            pdf.cell(cws[i],RH,str(row.get(h,""))[:col_chars[i]],border=0,align="L")
+    from datetime import datetime
+
+    # ── Layout constants ──────────────────────────────────────────────────
+    FONT_SIZE  = 6.5          # pt  — Courier body text
+    LINE_H     = 5.0          # mm  — data row height
+    HEADER_H   = 6.5          # mm  — column-header row height
+    CHAR_W     = FONT_SIZE * 0.50   # mm per character (Courier)
+    MAX_CHARS  = 28           # truncate displayed text beyond this length
+    MIN_COL_MM = 8            # floor column width
+    MAX_COL_MM = 55           # ceiling column width
+    MARGIN     = 8            # page margin mm
+    PAGE_H_MM  = 210          # A4 height used as the page height (landscape)
+
+    def _safe(text):
+        """Replace characters outside latin-1 so Courier font stays happy."""
+        return str(text).encode("latin-1", errors="replace").decode("latin-1")
+
+    # ── Detect exchange ───────────────────────────────────────────────────
+    exch_raw = (raw_rows[0].get("Market", "") or "").strip().upper() if raw_rows else ""
+    exch = "VFEX" if exch_raw in ("VFX", "VFEX") else "ZSE"
+    out_path = os.path.join(out_dir, f"MATCHED TRADES, {exch}.pdf")
+
+    # ── Compute per-column widths ─────────────────────────────────────────
+    def _col_w(hdr, rows, key):
+        mx = len(str(hdr))
+        for r in rows:
+            mx = max(mx, len(str(r.get(key, "") or "")))
+        mx = min(mx, MAX_CHARS)
+        return max(MIN_COL_MM, min(MAX_COL_MM, mx * CHAR_W))
+
+    col_widths = [_col_w(h, raw_rows, h) for h in raw_headers]
+
+    # ── Total content width → custom page width ───────────────────────────
+    # All columns fit on ONE width — absolutely no grouping.
+    total_content_w = sum(col_widths)
+    page_w = total_content_w + 2 * MARGIN
+
+    ts_label   = datetime.now().strftime("%d %b %Y  %H:%M")
+    total_rows = len(raw_rows)
+
+    # ── Build PDF with custom page size ──────────────────────────────────
+    # FPDF format=(height, width) in landscape — we supply a wide custom width
+    # so every column sits side-by-side on the same horizontal band.
+    pdf = FPDF(orientation="L", unit="mm", format=(PAGE_H_MM, page_w))
+    pdf.set_margins(MARGIN, MARGIN, MARGIN)
+    pdf.set_auto_page_break(auto=True, margin=14)
+
+    def _page_header():
+        pdf.set_font("Courier", style="B", size=6.5)
+        pdf.set_text_color(90, 90, 90)
+        label = _safe(
+            f"MATCHED TRADES - {exch}  |  "
+            f"{total_rows} row(s)  |  {ts_label}  |  "
+            f"All {len(raw_headers)} columns — scroll right to see full table"
+        )
+        pdf.cell(0, 4.5, label, border=0, align="L")
+        pdf.ln(6)
+        pdf.set_text_color(0, 0, 0)
+
+    def _draw_col_headers():
+        pdf.set_font("Courier", style="B", size=FONT_SIZE)
+        pdf.set_text_color(0, 0, 0)
+        for i, h in enumerate(raw_headers):
+            pdf.cell(col_widths[i], HEADER_H, _safe(str(h)[:MAX_CHARS]), border=0, align="L")
         pdf.ln()
-    pdf.output(path); return path
+        # thin horizontal rule under the header row
+        y = pdf.get_y()
+        pdf.set_draw_color(150, 150, 150)
+        pdf.line(MARGIN, y, page_w - MARGIN, y)
+        pdf.set_draw_color(0, 0, 0)
+        pdf.ln(0.8)
+
+    def _draw_data_rows():
+        pdf.set_font("Courier", size=FONT_SIZE)
+        pdf.set_text_color(0, 0, 0)
+        for row in raw_rows:
+            # Height overflow → new page at same width, repeat column header
+            if pdf.get_y() > pdf.h - 16:
+                pdf.add_page()
+                _page_header()
+                _draw_col_headers()
+                pdf.set_font("Courier", size=FONT_SIZE)
+                pdf.set_text_color(0, 0, 0)
+            for i, h in enumerate(raw_headers):
+                val = _safe(str(row.get(h, "") or "")[:MAX_CHARS])
+                pdf.cell(col_widths[i], LINE_H, val, border=0, align="L")
+            pdf.ln()
+
+    pdf.add_page()
+    _page_header()
+    _draw_col_headers()
+    _draw_data_rows()
+
+    pdf.output(out_path)
+    return out_path
+
 
 def open_sarestock_outlook(file_paths, sender_name=""):
     _require("win32com.client","pywin32")
@@ -870,7 +948,7 @@ class ContactsDialog(tk.Toplevel):
         self._current_name=new_name
         self._filter_list()
         self._show_detail(new_name)
-        messagebox.showinfo("Renamed",f"'{old_name}' → '{new_name}'\n\nClick 'Save & Close' to keep this change.",parent=self)
+        messagebox.showinfo("Renamed",f"'{old_name}' renamed.\n\nClick 'Save & Close' to keep this change.",parent=self)
 
     def _apply(self,name):
         self.contacts[name]={"email":self.entry_email.get().strip()}
@@ -926,9 +1004,9 @@ class ContactsDialog(tk.Toplevel):
             p=filedialog.askopenfilename(title="Select Service Account JSON",
                 filetypes=[("JSON","*.json"),("All","*.*")])
             if p: e_path.delete(0,tk.END); e_path.insert(0,p)
-        tk.Button(path_row,text="Browse…",command=browse,bg=FBC_MID,fg=WHITE,
+        tk.Button(path_row,text="Browse...",command=browse,bg=FBC_MID,fg=WHITE,
                   relief="flat",font=("Segoe UI",8),cursor="hand2",padx=6).pack(side="left",padx=4)
-        tk.Label(body,text="ⓘ  See SYNC_SETUP_GUIDE.txt for step-by-step instructions.",
+        tk.Label(body,text="See SYNC_SETUP_GUIDE.txt for step-by-step instructions.",
                  bg=BG,fg="#607080",font=("Segoe UI",8)).pack(anchor="w",pady=(4,0))
         def save_cfg():
             _save_sync_config({"sheet_id":e_sheet.get().strip(),
@@ -944,7 +1022,7 @@ class ContactsDialog(tk.Toplevel):
         if ok: messagebox.showinfo("Sync", msg, parent=self)
         elif msg == "sync_not_configured":
             messagebox.showwarning("Not Configured",
-                "Sync is not set up yet.\nClick '☁ Setup Sync' to configure.", parent=self)
+                "Sync is not set up yet.\nClick 'Setup Sync' to configure.", parent=self)
         else: messagebox.showerror("Sync Error", msg, parent=self)
 
     def _pull_from_sheet(self):
@@ -952,7 +1030,7 @@ class ContactsDialog(tk.Toplevel):
         if contacts is None:
             if msg == "sync_not_configured":
                 messagebox.showwarning("Not Configured",
-                    "Sync is not set up yet.\nClick '☁ Setup Sync' to configure.", parent=self)
+                    "Sync is not set up yet.\nClick 'Setup Sync' to configure.", parent=self)
             else: messagebox.showerror("Sync Error", msg, parent=self)
             return
         self.contacts.update(contacts)
@@ -986,18 +1064,16 @@ class SarestockPage(tk.Frame):
         self._build()
 
     def _build(self):
-        # top info bar
         info=tk.Frame(self,bg=FBC_MID,padx=16,pady=8); info.pack(fill="x")
         tk.Label(info,text="📊  Sarestock Upload Converter",bg=FBC_MID,fg=WHITE,
                  font=("Segoe UI",11,"bold")).pack(side="left")
         right=tk.Frame(info,bg=FBC_MID); right.pack(side="right")
-        self.lbl_ticket=tk.Label(right,text="Next ticket: …",bg=FBC_MID,fg="#D0EAFF",
+        self.lbl_ticket=tk.Label(right,text="Next ticket: ...",bg=FBC_MID,fg="#D0EAFF",
                                   font=("Consolas",10)); self.lbl_ticket.pack(side="right",padx=(10,0))
-        tk.Button(right,text="⟳  Reset Counter",command=self._reset,
+        tk.Button(right,text="Reset Counter",command=self._reset,
                   bg=FBC_DARK,fg="#90CAF9",relief="flat",font=("Segoe UI",9),
                   cursor="hand2",padx=8,pady=3).pack(side="right")
 
-        # two-column paned area
         self.paned=tk.PanedWindow(self,orient="horizontal",bg=SEP_CLR,sashwidth=4,sashrelief="flat")
         self.paned.pack(fill="both",expand=True)
         self.left_frame,self.left_canvas,self.left_body=self._scroll_pane(self.paned)
@@ -1027,37 +1103,35 @@ class SarestockPage(tk.Frame):
     def _build_bottom_bar(self):
         bar=tk.Frame(self,bg=BOTTOM,pady=10); bar.pack(fill="x",side="bottom")
         path_row=tk.Frame(bar,bg=BOTTOM); path_row.pack(fill="x",padx=16,pady=(0,6))
-        tk.Label(path_row,text="📁  Files saved to:",bg=BOTTOM,fg="#8BAAC8",
+        tk.Label(path_row,text="Files saved to:",bg=BOTTOM,fg="#8BAAC8",
                  font=("Segoe UI",8)).pack(side="left")
         self.lbl_outdir=tk.Label(path_row,text=self.out_dir,bg=BOTTOM,fg="#90CAF9",
                                   font=("Segoe UI",8)); self.lbl_outdir.pack(side="left",padx=6)
-        tk.Button(path_row,text="Change…",command=self._pick_outdir,bg="#1A3A6B",fg="#90CAF9",
+        tk.Button(path_row,text="Change...",command=self._pick_outdir,bg="#1A3A6B",fg="#90CAF9",
                   relief="flat",font=("Segoe UI",8),cursor="hand2",padx=6,pady=2).pack(side="left")
 
-        # ── Clear Uploads button ─────────────────────────────────────────────
-        tk.Button(path_row, text="🗑  Clear Uploads", command=self._clear_uploads,
+        tk.Button(path_row, text="Clear Uploads", command=self._clear_uploads,
                   bg=RED_DARK, fg=WHITE, relief="flat",
                   font=("Segoe UI", 8, "bold"), cursor="hand2",
                   padx=8, pady=2).pack(side="right")
 
         btn_row=tk.Frame(bar,bg=BOTTOM); btn_row.pack(fill="x",padx=16)
         btn_row.columnconfigure(0,weight=1); btn_row.columnconfigure(1,weight=1); btn_row.columnconfigure(2,weight=2)
-        self.btn_email=tk.Button(btn_row,text="✉  Send — ZSE Only",command=self._send_email,
+        self.btn_email=tk.Button(btn_row,text="Send — ZSE Only",command=self._send_email,
             bg=GREEN_DARK,fg=WHITE,font=("Segoe UI",10,"bold"),relief="flat",pady=9,
             cursor="hand2",state="disabled")
         self.btn_email.grid(row=0,column=0,sticky="ew",padx=(0,6))
-        self.btn_email2=tk.Button(btn_row,text="✉  Send — VFEX Only",command=self._send_email2,
+        self.btn_email2=tk.Button(btn_row,text="Send — VFEX Only",command=self._send_email2,
             bg="#1A3A6B",fg=WHITE,font=("Segoe UI",10,"bold"),relief="flat",pady=9,
             cursor="hand2",state="disabled")
         self.btn_email2.grid(row=0,column=1,sticky="ew",padx=(0,6))
-        self.btn_email_both=tk.Button(btn_row,text="✉  Send BOTH ZSE + VFEX in One Email",
+        self.btn_email_both=tk.Button(btn_row,text="Send BOTH ZSE + VFEX in One Email",
             command=self._send_email_both,bg=FBC_MID,fg=WHITE,font=("Segoe UI",11,"bold"),
             relief="flat",pady=9,cursor="hand2",state="disabled")
         self.btn_email_both.grid(row=0,column=2,sticky="ew")
-        tk.Label(bar,text="Each email attaches: Matched Trades PDF + original file  ·  Pre-fills To, CC and Subject",
+        tk.Label(bar,text="Each email attaches: Matched Trades PDF + original file  |  Pre-fills To, CC and Subject",
                  bg=BOTTOM,fg="#5D7A99",font=("Segoe UI",8)).pack(pady=(4,0))
 
-    # ── NEW: clear both upload columns back to blank state ───────────────────
     def _clear_uploads(self):
         has_data = bool(self.source_path or self.source_path2)
         if not has_data:
@@ -1068,38 +1142,32 @@ class SarestockPage(tk.Frame):
                 "Clear all uploaded matched trades files and start fresh?\n\n"
                 "This does NOT delete any files from disk."):
             return
-        # ── wipe column 1 ──
         self.raw_rows=[]; self.raw_headers=[]; self.conv_rows=[]
         self.source_path=None
         self.gen_csv=self.gen_pdf=self.gen_mt_xlsx=None
-        # ── wipe column 2 ──
         self.raw_rows2=[]; self.raw_headers2=[]; self.conv_rows2=[]
         self.source_path2=None
         self.gen_csv2=self.gen_pdf2=self.gen_mt_xlsx2=None
-        # ── hide previews ──
         self.prev_outer1.pack_forget()
         self.prev_outer2.pack_forget()
-        # ── reset info bars ──
         for w in self.info_bar1.winfo_children(): w.pack_forget()
         self.info_bar1.pack_forget()
         for w in self.info_bar2.winfo_children(): w.pack_forget()
         self.info_bar2.pack_forget()
-        # ── reset download labels ──
         self.lbl_csv_done.config(text="")
         self.lbl_pdf_done.config(text="")
         self.lbl_csv2_done.config(text="")
         self.lbl_pdf2_done.config(text="")
-        self.btn_csv.config(text="⬇  Download CSV", bg=FBC_MID, state="disabled")
-        self.btn_pdf.config(text="⬇  Download PDF", bg=RED_DARK, state="disabled")
-        self.btn_csv2.config(text="⬇  Download CSV", bg=FBC_MID, state="disabled")
-        self.btn_pdf2.config(text="⬇  Download PDF", bg=RED_DARK, state="disabled")
-        # ── disable email buttons ──
+        self.btn_csv.config(text="Download CSV", bg=FBC_MID, state="disabled")
+        self.btn_pdf.config(text="Download PDF", bg=RED_DARK, state="disabled")
+        self.btn_csv2.config(text="Download CSV", bg=FBC_MID, state="disabled")
+        self.btn_pdf2.config(text="Download PDF", bg=RED_DARK, state="disabled")
         for b in (self.btn_email, self.btn_email2, self.btn_email_both):
             b.config(state="disabled")
-        self.btn_email.config(text="✉  Send — ZSE Only")
-        self.btn_email2.config(text="✉  Send — VFEX Only")
+        self.btn_email.config(text="Send — ZSE Only")
+        self.btn_email2.config(text="Send — VFEX Only")
         self._refresh_ticket()
-        messagebox.showinfo("Cleared", "✅  Both upload slots cleared. Ready for a new upload.")
+        messagebox.showinfo("Cleared", "Both upload slots cleared. Ready for a new upload.")
 
     def _build_left_column(self):
         p=self.left_body
@@ -1111,22 +1179,21 @@ class SarestockPage(tk.Frame):
         ucard=self._card(p,COL1_HDR)
         dz=tk.Frame(ucard,bg="#F4F8FE",relief="groove",bd=2); dz.pack(fill="x",pady=(0,10))
         inner=tk.Frame(dz,bg="#F4F8FE"); inner.pack(pady=16)
-        tk.Label(inner,text="🗂",bg="#F4F8FE",font=("Segoe UI",22)).pack()
         tk.Label(inner,text="Upload Matched Trades File",bg="#F4F8FE",fg=FBC_MID,
                  font=("Segoe UI",10,"bold")).pack(pady=(4,0))
         tk.Label(inner,text=".csv or .xlsx",bg="#F4F8FE",fg="#8096B0",font=("Segoe UI",8)).pack()
-        tk.Button(inner,text="  Browse…  ",command=self._pick_file,bg=FBC_MID,fg=WHITE,
+        tk.Button(inner,text="  Browse...  ",command=self._pick_file,bg=FBC_MID,fg=WHITE,
                   font=("Segoe UI",10,"bold"),relief="flat",padx=14,pady=6,cursor="hand2").pack(pady=(8,0))
         self.info_bar1=tk.Frame(ucard,bg=TAG_BLUE,highlightbackground=FBC_ACCENT,highlightthickness=1)
         self.lbl_file1=tk.Label(self.info_bar1,text="",bg=TAG_BLUE,fg=FBC_DARK,font=("Segoe UI",9,"bold"))
         self.lbl_rows1=tk.Label(self.info_bar1,text="",bg=TAG_BLUE,fg=FBC_MID,font=("Consolas",8))
-        self.btn_reupload1=tk.Button(self.info_bar1,text="↩ Change",command=self._pick_file,
+        self.btn_reupload1=tk.Button(self.info_bar1,text="Change",command=self._pick_file,
                                      bg=TAG_BLUE,fg=FBC_MID,relief="flat",font=("Segoe UI",8),cursor="hand2")
         dcard=self._card(p,COL1_HDR)
         tk.Label(dcard,text="DOWNLOAD",bg=CARD_BG,fg="#8096B0",font=("Segoe UI",8,"bold")).pack(anchor="w")
         btn_row=tk.Frame(dcard,bg=CARD_BG); btn_row.pack(fill="x",pady=(6,2))
-        self.btn_csv=self._col_btn(btn_row,"⬇  Download CSV",self._dl_csv,FBC_MID)
-        self.btn_pdf=self._col_btn(btn_row,"⬇  Download PDF",self._dl_pdf,RED_DARK)
+        self.btn_csv=self._col_btn(btn_row,"Download CSV",self._dl_csv,FBC_MID)
+        self.btn_pdf=self._col_btn(btn_row,"Download PDF",self._dl_pdf,RED_DARK)
         for b in (self.btn_csv,self.btn_pdf): b.config(state="disabled")
         self.lbl_csv_done=tk.Label(dcard,text="",bg=CARD_BG,fg=GREEN_DARK,font=("Segoe UI",8)); self.lbl_csv_done.pack(anchor="w")
         self.lbl_pdf_done=tk.Label(dcard,text="",bg=CARD_BG,fg=GREEN_DARK,font=("Segoe UI",8)); self.lbl_pdf_done.pack(anchor="w")
@@ -1144,22 +1211,21 @@ class SarestockPage(tk.Frame):
         ucard=self._card(p,COL2_HDR)
         dz=tk.Frame(ucard,bg="#F4F8FE",relief="groove",bd=2); dz.pack(fill="x",pady=(0,10))
         inner=tk.Frame(dz,bg="#F4F8FE"); inner.pack(pady=16)
-        tk.Label(inner,text="🗂",bg="#F4F8FE",font=("Segoe UI",22)).pack()
         tk.Label(inner,text="Upload Matched Trades File",bg="#F4F8FE",fg=FBC_MID,
                  font=("Segoe UI",10,"bold")).pack(pady=(4,0))
         tk.Label(inner,text=".csv or .xlsx",bg="#F4F8FE",fg="#8096B0",font=("Segoe UI",8)).pack()
-        tk.Button(inner,text="  Browse…  ",command=self._pick_file2,bg=COL2_HDR,fg=WHITE,
+        tk.Button(inner,text="  Browse...  ",command=self._pick_file2,bg=COL2_HDR,fg=WHITE,
                   font=("Segoe UI",10,"bold"),relief="flat",padx=14,pady=6,cursor="hand2").pack(pady=(8,0))
         self.info_bar2=tk.Frame(ucard,bg=TAG_BLUE,highlightbackground=FBC_ACCENT,highlightthickness=1)
         self.lbl_file2=tk.Label(self.info_bar2,text="",bg=TAG_BLUE,fg=FBC_DARK,font=("Segoe UI",9,"bold"))
         self.lbl_rows2=tk.Label(self.info_bar2,text="",bg=TAG_BLUE,fg=FBC_MID,font=("Consolas",8))
-        self.btn_reupload2=tk.Button(self.info_bar2,text="↩ Change",command=self._pick_file2,
+        self.btn_reupload2=tk.Button(self.info_bar2,text="Change",command=self._pick_file2,
                                      bg=TAG_BLUE,fg=FBC_MID,relief="flat",font=("Segoe UI",8),cursor="hand2")
         dcard=self._card(p,COL2_HDR)
         tk.Label(dcard,text="DOWNLOAD",bg=CARD_BG,fg="#8096B0",font=("Segoe UI",8,"bold")).pack(anchor="w")
         btn_row=tk.Frame(dcard,bg=CARD_BG); btn_row.pack(fill="x",pady=(6,2))
-        self.btn_csv2=self._col_btn(btn_row,"⬇  Download CSV",self._dl_csv2,FBC_MID)
-        self.btn_pdf2=self._col_btn(btn_row,"⬇  Download PDF",self._dl_pdf2,RED_DARK)
+        self.btn_csv2=self._col_btn(btn_row,"Download CSV",self._dl_csv2,FBC_MID)
+        self.btn_pdf2=self._col_btn(btn_row,"Download PDF",self._dl_pdf2,RED_DARK)
         for b in (self.btn_csv2,self.btn_pdf2): b.config(state="disabled")
         self.lbl_csv2_done=tk.Label(dcard,text="",bg=CARD_BG,fg=GREEN_DARK,font=("Segoe UI",8)); self.lbl_csv2_done.pack(anchor="w")
         self.lbl_pdf2_done=tk.Label(dcard,text="",bg=CARD_BG,fg=GREEN_DARK,font=("Segoe UI",8)); self.lbl_pdf2_done.pack(anchor="w")
@@ -1200,7 +1266,7 @@ class SarestockPage(tk.Frame):
             tk.Label(f,text=ltext,bg="#F0F7FF",fg="#8096B0",font=("Segoe UI",7,"bold")).pack(anchor="w")
             tk.Label(f,text=val,bg="#F0F7FF",fg=FBC_DARK,font=("Segoe UI",11,"bold")).pack(anchor="w")
         ibox(summ,"ROWS",str(len(rows)),0); ibox(summ,"DATE/TIME",now,1)
-        ibox(summ,"TICKET RANGE",f"{tickets[0]}→{tickets[-1]}",2)
+        ibox(summ,"TICKET RANGE",f"{tickets[0]} to {tickets[-1]}",2)
         style=ttk.Style()
         try: style.theme_use("default")
         except Exception: pass
@@ -1239,17 +1305,17 @@ class SarestockPage(tk.Frame):
             self.source_path=path; self.conv_rows,now,tickets=transform_rows(self.raw_rows)
             self.gen_csv=self.gen_pdf=self.gen_mt_xlsx=None
             self.lbl_csv_done.config(text=""); self.lbl_pdf_done.config(text="")
-            self.btn_csv.config(text="⬇  Download CSV",bg=FBC_MID)
-            self.btn_pdf.config(text="⬇  Download PDF",bg=RED_DARK)
+            self.btn_csv.config(text="Download CSV",bg=FBC_MID)
+            self.btn_pdf.config(text="Download PDF",bg=RED_DARK)
             fname=os.path.basename(path); exch=get_exchange(self.raw_rows[0].get("Market",""))
             for w in self.info_bar1.winfo_children(): w.pack_forget()
             self.info_bar1.pack(fill="x",pady=(0,6))
-            tk.Label(self.info_bar1,text="✅",bg=TAG_BLUE,font=("Segoe UI",10)).pack(side="left",padx=(6,2),pady=4)
+            tk.Label(self.info_bar1,text="OK",bg=TAG_BLUE,font=("Segoe UI",10)).pack(side="left",padx=(6,2),pady=4)
             self.lbl_file1.config(text=fname); self.lbl_file1.pack(side="left",pady=4)
-            self.lbl_rows1.config(text=f"  {len(self.conv_rows)} rows  ·  {tickets[0]}→{tickets[-1]}")
+            self.lbl_rows1.config(text=f"  {len(self.conv_rows)} rows  |  {tickets[0]} to {tickets[-1]}")
             self.lbl_rows1.pack(side="left",pady=4); self.btn_reupload1.pack(side="right",padx=6,pady=4)
             for b in (self.btn_csv,self.btn_pdf): b.config(state="normal")
-            self.btn_email.config(text=f"✉  Send — {exch} Only",state="normal")
+            self.btn_email.config(text=f"Send — {exch} Only",state="normal")
             self.prev_outer1.pack(fill="x",padx=12,pady=(4,0))
             self._build_preview("prev_body1","lbl_showing1",self.conv_rows,tickets,now)
             if self.source_path2: self.btn_email_both.config(state="normal")
@@ -1260,21 +1326,21 @@ class SarestockPage(tk.Frame):
         try:
             exch=get_exchange(self.raw_rows[0].get("Market",""))
             self.gen_csv=generate_csv(self.conv_rows,self.out_dir,exch)
-            self.lbl_csv_done.config(text=f"✅  {os.path.basename(self.gen_csv)} saved")
-            self.btn_csv.config(text="✅  CSV Downloaded",bg="#1B5E20")
+            self.lbl_csv_done.config(text=f"OK  {os.path.basename(self.gen_csv)} saved")
+            self.btn_csv.config(text="CSV Downloaded",bg="#1B5E20")
         except Exception as e: messagebox.showerror("CSV Error",str(e))
 
     def _dl_pdf(self):
         try:
             self.gen_pdf=generate_pdf(self.raw_rows,self.raw_headers,self.out_dir)
-            self.lbl_pdf_done.config(text=f"✅  {os.path.basename(self.gen_pdf)} saved")
-            self.btn_pdf.config(text="✅  PDF Downloaded",bg="#7B1010")
+            self.lbl_pdf_done.config(text=f"OK  {os.path.basename(self.gen_pdf)} saved")
+            self.btn_pdf.config(text="PDF Downloaded",bg="#7B1010")
         except Exception as e: messagebox.showerror("PDF Error",str(e))
 
     def _ensure_email_files(self):
         if not self.gen_pdf:
             self.gen_pdf=generate_pdf(self.raw_rows,self.raw_headers,self.out_dir)
-            self.lbl_pdf_done.config(text=f"✅  {os.path.basename(self.gen_pdf)} saved")
+            self.lbl_pdf_done.config(text=f"OK  {os.path.basename(self.gen_pdf)} saved")
         if not self.gen_mt_xlsx:
             self.gen_mt_xlsx=generate_matched_excel(self.source_path,self.raw_rows,self.out_dir)
 
@@ -1299,17 +1365,17 @@ class SarestockPage(tk.Frame):
             self.source_path2=path; self.conv_rows2,now,tickets=transform_rows(self.raw_rows2)
             self.gen_csv2=self.gen_pdf2=self.gen_mt_xlsx2=None
             self.lbl_csv2_done.config(text=""); self.lbl_pdf2_done.config(text="")
-            self.btn_csv2.config(text="⬇  Download CSV",bg=FBC_MID)
-            self.btn_pdf2.config(text="⬇  Download PDF",bg=RED_DARK)
+            self.btn_csv2.config(text="Download CSV",bg=FBC_MID)
+            self.btn_pdf2.config(text="Download PDF",bg=RED_DARK)
             fname=os.path.basename(path); exch2=get_exchange(self.raw_rows2[0].get("Market",""))
             for w in self.info_bar2.winfo_children(): w.pack_forget()
             self.info_bar2.pack(fill="x",pady=(0,6))
-            tk.Label(self.info_bar2,text="✅",bg=TAG_BLUE,font=("Segoe UI",10)).pack(side="left",padx=(6,2),pady=4)
+            tk.Label(self.info_bar2,text="OK",bg=TAG_BLUE,font=("Segoe UI",10)).pack(side="left",padx=(6,2),pady=4)
             self.lbl_file2.config(text=fname); self.lbl_file2.pack(side="left",pady=4)
-            self.lbl_rows2.config(text=f"  {len(self.conv_rows2)} rows  ·  {tickets[0]}→{tickets[-1]}")
+            self.lbl_rows2.config(text=f"  {len(self.conv_rows2)} rows  |  {tickets[0]} to {tickets[-1]}")
             self.lbl_rows2.pack(side="left",pady=4); self.btn_reupload2.pack(side="right",padx=6,pady=4)
             for b in (self.btn_csv2,self.btn_pdf2): b.config(state="normal")
-            self.btn_email2.config(text=f"✉  Send — {exch2} Only",state="normal")
+            self.btn_email2.config(text=f"Send — {exch2} Only",state="normal")
             self.prev_outer2.pack(fill="x",padx=12,pady=(4,0))
             self._build_preview("prev_body2","lbl_showing2",self.conv_rows2,tickets,now)
             if self.source_path: self.btn_email_both.config(state="normal")
@@ -1320,21 +1386,21 @@ class SarestockPage(tk.Frame):
         try:
             exch2=get_exchange(self.raw_rows2[0].get("Market",""))
             self.gen_csv2=generate_csv(self.conv_rows2,self.out_dir,exch2)
-            self.lbl_csv2_done.config(text=f"✅  {os.path.basename(self.gen_csv2)} saved")
-            self.btn_csv2.config(text="✅  CSV Downloaded",bg="#1B5E20")
+            self.lbl_csv2_done.config(text=f"OK  {os.path.basename(self.gen_csv2)} saved")
+            self.btn_csv2.config(text="CSV Downloaded",bg="#1B5E20")
         except Exception as e: messagebox.showerror("CSV Error (2nd)",str(e))
 
     def _dl_pdf2(self):
         try:
             self.gen_pdf2=generate_pdf(self.raw_rows2,self.raw_headers2,self.out_dir)
-            self.lbl_pdf2_done.config(text=f"✅  {os.path.basename(self.gen_pdf2)} saved")
-            self.btn_pdf2.config(text="✅  PDF Downloaded",bg="#7B1010")
+            self.lbl_pdf2_done.config(text=f"OK  {os.path.basename(self.gen_pdf2)} saved")
+            self.btn_pdf2.config(text="PDF Downloaded",bg="#7B1010")
         except Exception as e: messagebox.showerror("PDF Error (2nd)",str(e))
 
     def _ensure_email_files2(self):
         if not self.gen_pdf2:
             self.gen_pdf2=generate_pdf(self.raw_rows2,self.raw_headers2,self.out_dir)
-            self.lbl_pdf2_done.config(text=f"✅  {os.path.basename(self.gen_pdf2)} saved")
+            self.lbl_pdf2_done.config(text=f"OK  {os.path.basename(self.gen_pdf2)} saved")
         if not self.gen_mt_xlsx2:
             self.gen_mt_xlsx2=generate_matched_excel(self.source_path2,self.raw_rows2,self.out_dir)
 
@@ -1360,7 +1426,7 @@ class SarestockPage(tk.Frame):
     def _reset(self):
         if messagebox.askyesno("Reset Counter","Reset ticket counter?\n\nOnly do this if Sarestock has also been reset."):
             reset_counter()
-            self._clear_uploads()   # reuse the clear logic to also wipe UI
+            self._clear_uploads()
             self._refresh_ticket()
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1371,22 +1437,21 @@ class EmailerPage(tk.Frame):
         super().__init__(parent,bg=BG)
         self.contacts=load_contacts(); self.deal_items=[]; self.pdf_folder=""
         self.sender_name = load_sender_name()
-        self.sent_custodians = set()   # tracks custodian codes already sent
-        self.sent_clients    = set()   # tracks client names already sent
+        self.sent_custodians = set()
+        self.sent_clients    = set()
         self._build()
 
     def _build(self):
         bar=tk.Frame(self,bg=FBC_MID,padx=16,pady=8); bar.pack(fill="x")
-        tk.Label(bar,text="✉  Deal Note Email Automator",bg=FBC_MID,fg=WHITE,
+        tk.Label(bar,text="Deal Note Email Automator",bg=FBC_MID,fg=WHITE,
                  font=("Segoe UI",11,"bold")).pack(side="left")
-        tk.Button(bar,text="👤  Manage Client Contacts",command=self._open_contacts,
+        tk.Button(bar,text="Manage Client Contacts",command=self._open_contacts,
                   bg=FBC_DARK,fg=WHITE,relief="flat",font=("Segoe UI",9,"bold"),
                   cursor="hand2",padx=10,pady=4).pack(side="right",padx=4)
 
-        # ── Sender name strip ────────────────────────────────────────────────
         name_bar = tk.Frame(self, bg=FBC_DARK, padx=16, pady=6)
         name_bar.pack(fill="x")
-        tk.Label(name_bar, text="✍  Your Name (used in email sign-off):",
+        tk.Label(name_bar, text="Your Name (used in email sign-off):",
                  bg=FBC_DARK, fg=SIDEBAR_TEXT, font=("Segoe UI", 9, "bold")).pack(side="left")
         self._sender_var = tk.StringVar(value=self.sender_name)
         name_entry = tk.Entry(name_bar, textvariable=self._sender_var,
@@ -1395,16 +1460,15 @@ class EmailerPage(tk.Frame):
                               highlightbackground=FBC_MID, highlightthickness=1,
                               width=26)
         name_entry.pack(side="left", padx=(8, 6), ipady=4)
-        tk.Button(name_bar, text="💾  Save Name", command=self._save_sender_name,
+        tk.Button(name_bar, text="Save Name", command=self._save_sender_name,
                   bg=GREEN_DARK, fg=WHITE, relief="flat",
                   font=("Segoe UI", 9, "bold"), cursor="hand2",
                   padx=10, pady=4).pack(side="left")
         self.lbl_name_saved = tk.Label(name_bar, text="", bg=FBC_DARK, fg="#90EE90",
                                        font=("Segoe UI", 8))
         self.lbl_name_saved.pack(side="left", padx=8)
-        # Show saved name hint on right
         self.lbl_name_hint = tk.Label(name_bar,
-            text=f"Saved: {self.sender_name}" if self.sender_name else "⚠ No name saved yet",
+            text=f"Saved: {self.sender_name}" if self.sender_name else "No name saved yet",
             bg=FBC_DARK,
             fg="#90CAF9" if self.sender_name else "#FF9966",
             font=("Segoe UI", 8))
@@ -1413,18 +1477,18 @@ class EmailerPage(tk.Frame):
         fp=tk.Frame(self,bg=WHITE,padx=16,pady=12); fp.pack(fill="x",padx=16,pady=(12,0))
 
         btn_row=tk.Frame(fp,bg=WHITE); btn_row.pack(fill="x")
-        tk.Button(btn_row,text="📂  Choose Deal Notes Folder",command=self._pick_folder,
+        tk.Button(btn_row,text="Choose Deal Notes Folder",command=self._pick_folder,
                   bg=FBC_MID,fg=WHITE,relief="flat",font=("Segoe UI",10,"bold"),
                   cursor="hand2",padx=14,pady=8).pack(side="left")
 
         tk.Label(btn_row,text="  or  ",bg=WHITE,fg="#8096B0",
                  font=("Segoe UI",9)).pack(side="left")
 
-        tk.Button(btn_row,text="📄  Select Individual Deal Note(s)",command=self._pick_individual_files,
+        tk.Button(btn_row,text="Select Individual Deal Note(s)",command=self._pick_individual_files,
                   bg="#4051B5",fg=WHITE,relief="flat",font=("Segoe UI",10,"bold"),
                   cursor="hand2",padx=14,pady=8).pack(side="left")
 
-        self.btn_clear=tk.Button(btn_row,text="🗑  Clear All Uploads",command=self._clear_uploads,
+        self.btn_clear=tk.Button(btn_row,text="Clear All Uploads",command=self._clear_uploads,
                   bg=RED_DARK,fg=WHITE,relief="flat",font=("Segoe UI",9,"bold"),
                   cursor="hand2",padx=10,pady=8,state="disabled")
         self.btn_clear.pack(side="right")
@@ -1442,16 +1506,16 @@ class EmailerPage(tk.Frame):
         nb=ttk.Notebook(self); nb.pack(fill="both",expand=True,padx=16,pady=10)
         self.tab_cust=tk.Frame(nb,bg=BG)
         self.tab_client=tk.Frame(nb,bg=BG)
-        nb.add(self.tab_cust,text="  ✉  Custodian Emails  ")
-        nb.add(self.tab_client,text="  ✉  Client Emails  ")
+        nb.add(self.tab_cust,text="  Custodian Emails  ")
+        nb.add(self.tab_client,text="  Client Emails  ")
         self._build_custodian_tab()
         self._build_client_tab()
 
     def _build_custodian_tab(self):
         p=self.tab_cust
-        tk.Label(p,text="Groups all PDFs by custodian → one email per custodian with all their deal notes attached.",
+        tk.Label(p,text="Groups all PDFs by custodian - one email per custodian with all their deal notes attached.",
                  bg=BG,fg="#607080",font=("Segoe UI",9)).pack(anchor="w",padx=16,pady=(10,0))
-        self.btn_send_all_cust=tk.Button(p,text="⏳  Send ALL Custodian Emails",
+        self.btn_send_all_cust=tk.Button(p,text="Send ALL Custodian Emails",
             command=self._cust_send_all,bg=GREEN_DARK,fg=WHITE,font=("Segoe UI",11,"bold"),
             relief="flat",padx=16,pady=10,cursor="hand2",state="disabled")
         self.btn_send_all_cust.pack(fill="x",padx=16,pady=(8,4))
@@ -1474,7 +1538,6 @@ class EmailerPage(tk.Frame):
         for code,items in sorted(groups.items()):
             routing=CUSTODIAN_ROUTING.get(code)
             sent = code in self.sent_custodians
-            # colour scheme: green tint if sent, blue/red if not
             if sent:
                 head_color = "#1A6B3A"
                 card_bg    = "#F0FBF4"
@@ -1486,20 +1549,20 @@ class EmailerPage(tk.Frame):
             head=tk.Frame(card,bg=head_color,pady=7,padx=12); head.pack(fill="x")
             label=routing["label"] if routing else "UNKNOWN CUSTODIAN"
             count=len(items)
-            status_badge = "  ✅ SENT" if sent else ""
-            tk.Label(head,text=f"{code}  —  {label}{status_badge}",bg=head_color,fg=WHITE,
+            status_badge = "  SENT" if sent else ""
+            tk.Label(head,text=f"{code}  -  {label}{status_badge}",bg=head_color,fg=WHITE,
                      font=("Segoe UI",10,"bold")).pack(side="left")
             tk.Label(head,text=f"{count} deal note{'s' if count>1 else ''}",
                      bg=head_color,fg=WHITE,font=("Segoe UI",9)).pack(side="right")
             inner=tk.Frame(card,bg=card_bg,padx=12,pady=8); inner.pack(fill="x")
             for it in items:
-                tk.Label(inner,text=f"  📄 {it['fname']}",bg=card_bg,fg="#2D3748",font=("Segoe UI",9)).pack(anchor="w")
+                tk.Label(inner,text=f"  {it['fname']}",bg=card_bg,fg="#2D3748",font=("Segoe UI",9)).pack(anchor="w")
             if routing:
-                subj=f"DEAL NOTE{'S' if count>1 else ''} — {datetime.now().strftime('%d %b %Y')}"
+                subj=f"DEAL NOTE{'S' if count>1 else ''} - {datetime.now().strftime('%d %b %Y')}"
                 tk.Label(inner,text=f"Subject: {subj}",bg=card_bg,fg="#607080",font=("Segoe UI",8,"italic")).pack(anchor="w",pady=(6,0))
                 tk.Label(inner,text=f"To: {'; '.join(routing['to'])}",bg=card_bg,fg="#607080",font=("Segoe UI",8)).pack(anchor="w")
-                btn_text = f"✅  Sent  ({count} file{'s' if count>1 else ''} attached)" if sent \
-                           else f"⏳  Open in Outlook  ({count} file{'s' if count>1 else ''} attached)"
+                btn_text = f"Sent  ({count} file{'s' if count>1 else ''} attached)" if sent \
+                           else f"Open in Outlook  ({count} file{'s' if count>1 else ''} attached)"
                 btn_bg   = "#2E7D32" if sent else FBC_MID
                 btn=tk.Button(inner,text=btn_text,
                     command=lambda c=code:self._cust_send_one(c),bg=btn_bg,fg=WHITE,relief="flat",
@@ -1512,30 +1575,29 @@ class EmailerPage(tk.Frame):
                     btn.config(bg="#2E7D32")
                 btn.pack(anchor="w",pady=(8,0)); self.cust_btn_map[code]=btn
             else:
-                tk.Label(inner,text="⚠  No routing configured for this custodian code.",
+                tk.Label(inner,text="No routing configured for this custodian code.",
                          bg=card_bg,fg=RED_DARK,font=("Segoe UI",9)).pack(anchor="w")
         known=sum(1 for c in groups if c in CUSTODIAN_ROUTING)
         unsent=sum(1 for c in groups if c in CUSTODIAN_ROUTING and c not in self.sent_custodians)
         self.btn_send_all_cust.config(
             state="normal" if unsent else "disabled",
-            text=f"⏳  Send ALL {known} Custodian Email{'s' if known!=1 else ''} in Outlook"
+            text=f"Send ALL {known} Custodian Email{'s' if known!=1 else ''} in Outlook"
                  + (f"  ({known - unsent} already sent)" if known > unsent else ""))
         self.lbl_cust_hint.config(
-            text=f"✅  {len(self.deal_items)} deal note(s) across {len(groups)} custodian(s).",fg=GREEN_DARK)
+            text=f"  {len(self.deal_items)} deal note(s) across {len(groups)} custodian(s).",fg=GREEN_DARK)
 
     def _cust_send_one(self,code):
         routing=CUSTODIAN_ROUTING.get(code)
         if not routing: messagebox.showwarning("Unknown",f"No routing for {code}."); return
         items=[it for it in self.deal_items if it["custodian"]==code]
         count=len(items)
-        subj=f"DEAL NOTE{'S' if count>1 else ''} — {datetime.now().strftime('%d %b %Y')}"
+        subj=f"DEAL NOTE{'S' if count>1 else ''} - {datetime.now().strftime('%d %b %Y')}"
         body=get_custodian_body(multi=(count>1), sender_name=self._get_sender())
         try:
             open_outlook(routing["to"],routing["cc"],subj,body,[it["path"] for it in items])
             self.sent_custodians.add(code)
             if code in self.cust_btn_map:
-                self.cust_btn_map[code].config(text="✅  Sent",bg="#2E7D32")
-                # re-render to apply green card tint
+                self.cust_btn_map[code].config(text="Sent",bg="#2E7D32")
                 self.after(300, self._render_custodian_tab)
         except ImportError as e: messagebox.showerror("pywin32 not installed",str(e))
         except Exception as e: messagebox.showerror("Outlook Error",str(e))
@@ -1547,17 +1609,17 @@ class EmailerPage(tk.Frame):
         if not codes: messagebox.showinfo("Nothing","No unsent custodian emails found."); return
         if not messagebox.askyesno("Send All",f"Open {len(codes)} Outlook window(s), one per custodian?\n\nContinue?"): return
         for code in codes: self._cust_send_one(code)
-        messagebox.showinfo("Done",f"✅  {len(codes)} Outlook window(s) opened.")
+        messagebox.showinfo("Done",f"  {len(codes)} Outlook window(s) opened.")
 
     def _build_client_tab(self):
         p=self.tab_client
         tk.Label(p,text="Sends one email per client with all their deal notes attached. Add emails via 'Manage Client Contacts'.",
                  bg=BG,fg="#607080",font=("Segoe UI",9)).pack(anchor="w",padx=16,pady=(10,0))
-        self.btn_send_everything=tk.Button(p,text="✉  Send ALL Emails (Custodian + Client)",
+        self.btn_send_everything=tk.Button(p,text="Send ALL Emails (Custodian + Client)",
             command=self._send_everything,bg=FBC_DARK,fg=WHITE,font=("Segoe UI",11,"bold"),
             relief="flat",padx=16,pady=10,cursor="hand2",state="disabled")
         self.btn_send_everything.pack(fill="x",padx=16,pady=(8,2))
-        self.btn_send_all_client=tk.Button(p,text="⏳  Send ALL Client Emails",
+        self.btn_send_all_client=tk.Button(p,text="Send ALL Client Emails",
             command=self._client_send_all,bg=GREEN_DARK,fg=WHITE,font=("Segoe UI",11,"bold"),
             relief="flat",padx=16,pady=10,cursor="hand2",state="disabled")
         self.btn_send_all_client.pack(fill="x",padx=16,pady=(2,4))
@@ -1608,33 +1670,30 @@ class EmailerPage(tk.Frame):
             email=grp["email"]; status=grp["status"]; count=len(grp["items"])
             custodians=", ".join(sorted(set(it["custodian"] for it in grp["items"])))
             sent = client_name in self.sent_clients
-            # green tint for sent rows, alternating white/light blue for unsent
             if sent:
                 bg = "#E8F8EE"
             else:
                 bg = "#F8FBFF" if i%2==0 else WHITE
             row=tk.Frame(self.client_body,bg=bg); row.pack(fill="x")
-            # Status label — show pending/sent/missing state clearly
             if sent:
-                sc = "#2E7D32"; st = "✅ Sent"
+                sc = "#2E7D32"; st = "Sent"
             elif status == "ready":
-                sc = FBC_MID; st = "⏳ Pending"
+                sc = FBC_MID; st = "Pending"
             else:
-                sc = RED_DARK; st = "⚠ Missing"
+                sc = RED_DARK; st = "Missing"
             file_label=f"{count} file{'s' if count>1 else ''}"
-            for v,w in zip([str(i+1),client_name[:20],file_label,custodians[:10],email[:24] or "—",st],widths):
+            for v,w in zip([str(i+1),client_name[:20],file_label,custodians[:10],email[:24] or "-",st],widths):
                 tk.Label(row,text=v,bg=bg,fg=(sc if v==st else "#2D3748"),
                          font=("Segoe UI",8),width=w,anchor="w",padx=4,pady=5).pack(side="left")
-            # Action button — pending shows send icon, sent shows checkmark and is locked
             if sent:
-                btn=tk.Button(row,text="✅ Sent",
+                btn=tk.Button(row,text="Sent",
                     bg="#2E7D32",fg=WHITE,relief="flat",
                     font=("Segoe UI",8,"bold"),
                     cursor="arrow",padx=6,pady=3,
                     state="disabled",disabledforeground=WHITE)
                 btn.config(bg="#2E7D32")
             else:
-                btn=tk.Button(row,text="✉ Send",
+                btn=tk.Button(row,text="Send",
                     bg=FBC_MID,fg=WHITE,relief="flat",
                     font=("Segoe UI",8,"bold"),
                     cursor="hand2",padx=6,pady=3,
@@ -1647,13 +1706,13 @@ class EmailerPage(tk.Frame):
         missing=len(groups)-ready
         self.btn_send_all_client.config(
             state="normal" if unsent_ready else "disabled",
-            text=f"⏳  Send ALL {ready} Client Email{'s' if ready!=1 else ''} in Outlook"
+            text=f"Send ALL {ready} Client Email{'s' if ready!=1 else ''} in Outlook"
                  + (f"  ({ready - unsent_ready} already sent)" if ready > unsent_ready else ""))
         self.btn_send_everything.config(
             state="normal" if ready or any(it["custodian"] in CUSTODIAN_ROUTING for it in self.deal_items) else "disabled")
         self.lbl_client_hint.config(
-            text=(f"✅  All {ready} clients matched." if not missing
-                  else f"⚠  {missing} client(s) missing — click 'Manage Client Contacts'."),
+            text=(f"  All {ready} clients matched." if not missing
+                  else f"  {missing} client(s) missing - click 'Manage Client Contacts'."),
             fg=GREEN_DARK if not missing else RED_DARK)
 
     def _client_send_group(self,client_name):
@@ -1669,8 +1728,7 @@ class EmailerPage(tk.Frame):
             open_outlook([grp["email"]],CLIENT_CC,subj,body,paths)
             self.sent_clients.add(client_name)
             if client_name in self.client_group_btns:
-                self.client_group_btns[client_name].config(text="✅ Sent",bg="#2E7D32")
-            # re-render after a short delay to apply green row tint
+                self.client_group_btns[client_name].config(text="Sent",bg="#2E7D32")
             self.after(300, self._render_client_tab)
         except ImportError as e: messagebox.showerror("pywin32 not installed",str(e))
         except Exception as e: messagebox.showerror("Outlook Error",str(e))
@@ -1682,7 +1740,7 @@ class EmailerPage(tk.Frame):
         if not ready: messagebox.showinfo("Nothing","No unsent clients with emails found."); return
         if not messagebox.askyesno("Send All Client Emails",f"Open {len(ready)} Outlook window(s), one per client?\n\nContinue?"): return
         for cn in ready: self._client_send_group(cn)
-        messagebox.showinfo("Done",f"✅  {len(ready)} Outlook window(s) opened.")
+        messagebox.showinfo("Done",f"  {len(ready)} Outlook window(s) opened.")
 
     def _send_everything(self):
         cust_codes=sorted(set(it["custodian"] for it in self.deal_items if it["custodian"] in CUSTODIAN_ROUTING))
@@ -1691,11 +1749,11 @@ class EmailerPage(tk.Frame):
         if total==0: messagebox.showinfo("Nothing","No emails to send."); return
         if not messagebox.askyesno("Send ALL Emails",
             f"This will open {total} Outlook window(s):\n"
-            f"  • {len(cust_codes)} custodian email(s)\n"
-            f"  • {len(ready_clients)} client email(s)\n\nContinue?"): return
+            f"  - {len(cust_codes)} custodian email(s)\n"
+            f"  - {len(ready_clients)} client email(s)\n\nContinue?"): return
         for code in cust_codes: self._cust_send_one(code)
         for cn in ready_clients: self._client_send_group(cn)
-        messagebox.showinfo("Done",f"✅  {total} Outlook window(s) opened.")
+        messagebox.showinfo("Done",f"  {total} Outlook window(s) opened.")
 
     def _open_contacts(self):
         ContactsDialog(self,self.contacts,self._on_contacts_saved)
@@ -1712,12 +1770,11 @@ class EmailerPage(tk.Frame):
             return
         self.sender_name = name
         save_sender_name(name)
-        self.lbl_name_saved.config(text="✅ Saved!")
+        self.lbl_name_saved.config(text="Saved!")
         self.lbl_name_hint.config(text=f"Saved: {name}", fg="#90CAF9")
         self.after(2500, lambda: self.lbl_name_saved.config(text=""))
 
     def _get_sender(self):
-        """Return the current sender name from the entry box (live value)."""
         return self._sender_var.get().strip() or self.sender_name or "FBC Securities"
 
     def _pick_folder(self):
@@ -1726,8 +1783,8 @@ class EmailerPage(tk.Frame):
         pdfs=sorted(f for f in os.listdir(folder) if f.lower().endswith(".pdf"))
         if not pdfs: messagebox.showwarning("No PDFs","No PDF files found in that folder."); return
         self.pdf_folder=folder
-        self.lbl_folder.config(text=f"📂  {os.path.basename(folder)}",fg=FBC_DARK)
-        self.lbl_found.config(text=f"Scanning {len(pdfs)} PDF(s)…")
+        self.lbl_folder.config(text=f"  {os.path.basename(folder)}",fg=FBC_DARK)
+        self.lbl_found.config(text=f"Scanning {len(pdfs)} PDF(s)...")
         self.lbl_file_list.config(text="")
         self._disable_send_buttons()
         self.btn_clear.config(state="normal")
@@ -1743,11 +1800,11 @@ class EmailerPage(tk.Frame):
         new_paths=[p for p in pdf_paths if p not in already]
         if not new_paths:
             messagebox.showinfo("No New Files","All selected files are already loaded."); return
-        self.lbl_found.config(text=f"Scanning {len(new_paths)} new PDF(s)…")
+        self.lbl_found.config(text=f"Scanning {len(new_paths)} new PDF(s)...")
         self.btn_clear.config(state="normal")
         names=", ".join(os.path.basename(p) for p in new_paths[:3])
         if len(new_paths)>3: names+=f" +{len(new_paths)-3} more"
-        self.lbl_folder.config(text=f"📄  {names}",fg=FBC_DARK)
+        self.lbl_folder.config(text=f"  {names}",fg=FBC_DARK)
         threading.Thread(target=self._scan_files,args=(new_paths,),daemon=True).start()
 
     def _clear_uploads(self):
@@ -1765,12 +1822,12 @@ class EmailerPage(tk.Frame):
         self.btn_clear.config(state="disabled")
         self._disable_send_buttons()
         for w in self.cust_body.winfo_children(): w.destroy()
-        self.btn_send_all_cust.config(state="disabled",text="⏳  Send ALL Custodian Emails")
+        self.btn_send_all_cust.config(state="disabled",text="Send ALL Custodian Emails")
         for w in self.client_body.winfo_children(): w.destroy()
         self.lbl_cust_hint.config(text="Load files above to begin.",fg="#607080")
         self.lbl_client_hint.config(text="Load files above to begin.",fg="#607080")
-        self.btn_send_all_cust.config(state="disabled",text="⏳  Send ALL Custodian Emails")
-        self.btn_send_all_client.config(state="disabled",text="⏳  Send ALL Client Emails")
+        self.btn_send_all_cust.config(state="disabled",text="Send ALL Custodian Emails")
+        self.btn_send_all_client.config(state="disabled",text="Send ALL Client Emails")
         self.btn_send_everything.config(state="disabled")
 
     def _disable_send_buttons(self):
@@ -1813,7 +1870,7 @@ class EmailerPage(tk.Frame):
     def _after_scan(self,total):
         self.after(0,self._render_custodian_tab)
         self.after(0,self._render_client_tab)
-        self.after(0,lambda:self.lbl_found.config(text=f"✅  {total} PDF(s) loaded"))
+        self.after(0,lambda:self.lbl_found.config(text=f"  {total} PDF(s) loaded"))
 
 # ════════════════════════════════════════════════════════════════════════════
 #  MAIN APP SHELL  (sidebar + page switcher)
@@ -1843,12 +1900,12 @@ class App(tk.Tk):
 
         self.nav_buttons = {}
         nav_items = [
-            ("📊", "Converter", "converter"),
-            ("✉",  "Deal Note\nEmailer", "emailer"),
+            ("Converter", "converter"),
+            ("Deal Note\nEmailer", "emailer"),
         ]
-        for icon, label, key in nav_items:
+        for label, key in nav_items:
             btn = tk.Button(sidebar,
-                text=f"{icon}\n{label}",
+                text=label,
                 command=lambda k=key: self._switch(k),
                 bg=SIDEBAR_BG, fg=SIDEBAR_TEXT,
                 activebackground=SIDEBAR_ACTIVE, activeforeground=WHITE,
@@ -1892,13 +1949,11 @@ class App(tk.Tk):
 if __name__ == "__main__":
     check_and_apply_update()
 
-    # ── Show login screen before opening the main app ──────────────────────
     login = LoginDialog()
     login.mainloop()
 
     if not login.authenticated:
-        sys.exit(0)   # User closed window or exhausted attempts
+        sys.exit(0)
 
-    # ── All good — launch the main application ─────────────────────────────
     app = App()
     app.mainloop()
