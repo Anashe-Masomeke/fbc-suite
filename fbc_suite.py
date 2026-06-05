@@ -120,62 +120,46 @@ from datetime import datetime
 _VOICE_READY   = False
 _sr            = None
 _tts           = None
-_whisper_model = None          # loaded lazily on first use
-_vosk_model    = None          # loaded lazily on first use
-_RECOGNISER    = "none"        # "whisper" | "vosk" | "google" | "none"
-
-# Fuzzy matcher — populated after rapidfuzz import attempt
-_fuzz = None
+_whisper_model = None
+_vosk_model    = None
+_RECOGNISER    = "none"
+_fuzz          = None
 
 def _init_voice():
     global _VOICE_READY, _sr, _tts, _fuzz, _RECOGNISER
-
-    # ── TTS ────────────────────────────────────────────────────────────────
     try:
         import pyttsx3
         _tts = pyttsx3.init()
         _tts.setProperty("rate", 165)
     except Exception:
-        pass   # TTS optional; recognition can still work
-
-    # ── Microphone / audio capture ─────────────────────────────────────────
+        pass
     try:
         import speech_recognition as sr
         _sr = sr
     except ImportError:
-        return   # nothing works without this
-
-    # ── Recogniser priority: Whisper → Vosk → Google ───────────────────────
+        return
     try:
-        import whisper as _w   # openai-whisper
-        # mark available; model loaded lazily (first listen) to not slow startup
+        import whisper as _w
         _RECOGNISER = "whisper"
     except ImportError:
         pass
-
     if _RECOGNISER == "none":
         try:
-            import vosk as _v   # noqa: F401
+            import vosk as _v  # noqa: F401
             _RECOGNISER = "vosk"
         except ImportError:
             pass
-
     if _RECOGNISER == "none":
-        _RECOGNISER = "google"   # always available via SpeechRecognition
-
-    # ── Fuzzy matcher ──────────────────────────────────────────────────────
+        _RECOGNISER = "google"
     try:
         from rapidfuzz import process as rfp, fuzz as rff
         _fuzz = (rfp, rff)
     except ImportError:
-        pass   # falls back to plain keyword matching
-
+        pass
     _VOICE_READY = True
 
 threading.Thread(target=_init_voice, daemon=True).start()
 
-
-# ── Lazy Whisper model loader ────────────────────────────────────────────────
 _whisper_lock = threading.Lock()
 
 def _get_whisper():
@@ -183,16 +167,11 @@ def _get_whisper():
     with _whisper_lock:
         if _whisper_model is None:
             import whisper
-            # "base.en" — good balance of speed vs accuracy for English
             _whisper_model = whisper.load_model("base.en")
     return _whisper_model
 
-
-# ── Lazy Vosk model loader ───────────────────────────────────────────────────
 _vosk_lock = threading.Lock()
-_VOSK_MODEL_PATH = os.path.join(
-    os.path.expanduser("~"), "vosk-model-small-en-us-0.15"
-)
+_VOSK_MODEL_PATH = os.path.join(os.path.expanduser("~"), "vosk-model-small-en-us-0.15")
 
 def _get_vosk():
     global _vosk_model
@@ -203,8 +182,7 @@ def _get_vosk():
                 raise FileNotFoundError(
                     f"Vosk model not found at:\n{_VOSK_MODEL_PATH}\n\n"
                     "Download from: alphacephei.com/vosk/models\n"
-                    "Extract to your home folder."
-                )
+                    "Extract to your home folder.")
             _vosk_model = vosk.Model(_VOSK_MODEL_PATH)
     return _vosk_model
 
@@ -233,7 +211,6 @@ TAG_BLUE   = "#E8F1FB"
 COL1_HDR   = "#003B6F"
 COL2_HDR   = "#1A3A6B"
 BOTTOM     = "#0D2B4E"
-
 SIDEBAR_BG      = "#001F3F"
 SIDEBAR_ACTIVE  = "#0066B3"
 SIDEBAR_HOVER   = "#003B6F"
@@ -247,8 +224,6 @@ APP_PASSWORD = "enock"
 MAX_ATTEMPTS = 6
 
 class LoginDialog(tk.Tk):
-    """Standalone login window shown before the main app launches."""
-
     def __init__(self):
         super().__init__()
         self.title("FBC Suite — Login")
@@ -271,16 +246,12 @@ class LoginDialog(tk.Tk):
                  font=("Segoe UI", 20, "bold"), padx=12, pady=6).pack()
         tk.Label(hdr, text="Suite", bg=FBC_ACCENT, fg=WHITE,
                  font=("Segoe UI", 11)).pack(pady=(2, 0))
-
         body = tk.Frame(self, bg=SIDEBAR_BG, padx=36, pady=24)
         body.pack(fill="both", expand=True)
-
         tk.Label(body, text="Enter Password", bg=SIDEBAR_BG, fg=SIDEBAR_TEXT,
                  font=("Segoe UI", 10, "bold")).pack(anchor="w")
-
         pw_row = tk.Frame(body, bg=SIDEBAR_BG)
         pw_row.pack(fill="x", pady=(6, 0))
-
         self._pw_var = tk.StringVar()
         self._show_pw = False
         self.entry_pw = tk.Entry(pw_row, textvariable=self._pw_var, show="●",
@@ -289,31 +260,25 @@ class LoginDialog(tk.Tk):
                                  highlightbackground=FBC_MID, highlightthickness=1)
         self.entry_pw.pack(side="left", fill="x", expand=True, ipady=8, padx=(0, 4))
         self.entry_pw.focus()
-
         self.btn_eye = tk.Button(pw_row, text="👁", command=self._toggle_show,
                                  bg="#0D2B4E", fg=SIDEBAR_TEXT, relief="flat",
                                  font=("Segoe UI", 12), cursor="hand2",
                                  activebackground=FBC_MID, activeforeground=WHITE,
                                  padx=6)
         self.btn_eye.pack(side="left")
-
         self.lbl_err = tk.Label(body, text="", bg=SIDEBAR_BG, fg="#FF6B6B",
                                 font=("Segoe UI", 9))
         self.lbl_err.pack(anchor="w", pady=(6, 0))
-
         self.lbl_attempts = tk.Label(body, text="", bg=SIDEBAR_BG, fg="#607080",
                                      font=("Segoe UI", 8))
         self.lbl_attempts.pack(anchor="w")
-
         self.btn_login = tk.Button(body, text="  🔓  Login  ",
                                    command=self._attempt_login,
                                    bg=FBC_MID, fg=WHITE, relief="flat",
                                    font=("Segoe UI", 11, "bold"),
                                    cursor="hand2", pady=10, activebackground=FBC_ACCENT)
         self.btn_login.pack(fill="x", pady=(16, 0))
-
         self.entry_pw.bind("<Return>", lambda _: self._attempt_login())
-
         tk.Label(self, text=f"v{VERSION}", bg=SIDEBAR_BG, fg="#2A4A6A",
                  font=("Segoe UI", 8)).pack(side="bottom", pady=6)
 
@@ -328,16 +293,13 @@ class LoginDialog(tk.Tk):
             self.authenticated = True
             self.destroy()
             return
-
         self._attempts += 1
         remaining = MAX_ATTEMPTS - self._attempts
-
         if remaining <= 0:
             messagebox.showerror("Access Denied",
                 "Too many incorrect attempts.\nThe application will now close.")
             self.destroy()
             return
-
         self.lbl_err.config(text="❌  Incorrect password. Please try again.")
         self.lbl_attempts.config(
             text=f"  {remaining} attempt{'s' if remaining > 1 else ''} remaining")
@@ -363,6 +325,154 @@ class LoginDialog(tk.Tk):
 
 
 # ════════════════════════════════════════════════════════════════════════════
+#  ── RECIPIENTS CONFIG  (persistent per-user JSON files) ────────────────────
+# ════════════════════════════════════════════════════════════════════════════
+
+# --- Sarestock / Deals Confirmation recipients --------------------------------
+SARESTOCK_RECIP_FILE = os.path.join(os.path.expanduser("~"), ".fbc_sarestock_recipients.json")
+
+_SARESTOCK_DEFAULT_TO = ["Anesu.Zingundu@fbc.co.zw"]
+_SARESTOCK_DEFAULT_CC = [
+    "Enock.Rukarwa@fbc.co.zw", "Manatsa.Tagwireyi@fbc.co.zw",
+    "Norman.Chirima@fbc.co.zw", "Richard.Mashava@fbc.co.zw",
+    "Anashe.Masomeke@fbc.co.zw",
+]
+
+def load_sarestock_recipients():
+    try:
+        with open(SARESTOCK_RECIP_FILE) as f:
+            d = json.load(f)
+        return d.get("to", _SARESTOCK_DEFAULT_TO), d.get("cc", _SARESTOCK_DEFAULT_CC)
+    except Exception:
+        return list(_SARESTOCK_DEFAULT_TO), list(_SARESTOCK_DEFAULT_CC)
+
+def save_sarestock_recipients(to_list, cc_list):
+    with open(SARESTOCK_RECIP_FILE, "w") as f:
+        json.dump({"to": to_list, "cc": cc_list}, f, indent=2)
+
+# --- Custodian recipients overrides ------------------------------------------
+CUSTODIAN_RECIP_FILE = os.path.join(os.path.expanduser("~"), ".fbc_custodian_recipients.json")
+
+def load_custodian_overrides():
+    """Returns dict: {custodian_code: {"to": [...], "cc": [...]}}"""
+    try:
+        with open(CUSTODIAN_RECIP_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def save_custodian_overrides(overrides):
+    with open(CUSTODIAN_RECIP_FILE, "w") as f:
+        json.dump(overrides, f, indent=2)
+
+# --- Client email CC override ------------------------------------------------
+CLIENT_CC_FILE = os.path.join(os.path.expanduser("~"), ".fbc_client_cc.json")
+
+_FBC_CC_DEFAULT = [
+    "Manatsa Tagwireyi <Manatsa.Tagwireyi@fbc.co.zw>",
+    "Norman Chirima <Norman.Chirima@fbc.co.zw>",
+    "Enock Rukarwa <Enock.Rukarwa@fbc.co.zw>",
+    "Richard Mashava <Richard.Mashava@fbc.co.zw>",
+    "Anesu Zingundu <Anesu.Zingundu@fbc.co.zw>",
+]
+
+def load_client_cc():
+    try:
+        with open(CLIENT_CC_FILE) as f:
+            d = json.load(f)
+        return d.get("cc", list(_FBC_CC_DEFAULT))
+    except Exception:
+        return list(_FBC_CC_DEFAULT)
+
+def save_client_cc(cc_list):
+    with open(CLIENT_CC_FILE, "w") as f:
+        json.dump({"cc": cc_list}, f, indent=2)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  SHARED RECIPIENTS EDITOR DIALOG
+#  Reusable dialog for editing a To list + CC list (or just CC list).
+#  Pass to_list=None to hide the To section (CC-only mode).
+# ════════════════════════════════════════════════════════════════════════════
+class RecipientsDialog(tk.Toplevel):
+    """
+    Generic editor for To / CC address lists.
+    on_save(to_list, cc_list) is called when the user clicks Save.
+    If to_list is None on open, the To section is hidden (CC-only).
+    """
+    def __init__(self, parent, title, to_list, cc_list, on_save,
+                 to_label="To (primary recipients)",
+                 cc_label="CC (copied recipients)"):
+        super().__init__(parent)
+        self.title(title)
+        self.configure(bg=BG)
+        self.resizable(False, False)
+        self.grab_set()
+        self._on_save = on_save
+        self._has_to  = to_list is not None
+        self._to_list = list(to_list) if to_list else []
+        self._cc_list = list(cc_list)
+        self._to_label = to_label
+        self._cc_label = cc_label
+        self._build()
+        self.update_idletasks()
+        w = 560
+        h = self.winfo_reqheight()
+        x = parent.winfo_rootx() + (parent.winfo_width()  - w) // 2
+        y = parent.winfo_rooty() + (parent.winfo_height() - h) // 2
+        self.geometry(f"{w}x{h}+{x}+{y}")
+
+    def _build(self):
+        tk.Label(self, text=f"  {self.title()}", bg=FBC_DARK, fg=WHITE,
+                 font=("Segoe UI", 11, "bold"), pady=10).pack(fill="x")
+
+        body = tk.Frame(self, bg=BG, padx=18, pady=12)
+        body.pack(fill="both", expand=True)
+
+        if self._has_to:
+            self._to_frame = self._section(body, self._to_label, self._to_list)
+        self._cc_frame = self._section(body, self._cc_label, self._cc_list)
+
+        hint = tk.Label(body,
+            text="One address per line.  Accepted formats:\n"
+                 "  plain@email.com   or   Display Name <plain@email.com>",
+            bg=BG, fg="#607080", font=("Segoe UI", 8), justify="left")
+        hint.pack(anchor="w", pady=(6, 0))
+
+        bot = tk.Frame(self, bg=BG, padx=18, pady=10)
+        bot.pack(fill="x")
+        tk.Button(bot, text="💾  Save", command=self._save,
+                  bg=GREEN_DARK, fg=WHITE, relief="flat",
+                  font=("Segoe UI", 10, "bold"), cursor="hand2",
+                  padx=16, pady=7).pack(side="right")
+        tk.Button(bot, text="Cancel", command=self.destroy,
+                  bg="#607080", fg=WHITE, relief="flat",
+                  font=("Segoe UI", 10), cursor="hand2",
+                  padx=12, pady=7).pack(side="right", padx=(0, 8))
+
+    def _section(self, parent, label, initial_list):
+        tk.Label(parent, text=label, bg=BG, fg=FBC_DARK,
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(8, 2))
+        txt = tk.Text(parent, height=4, font=("Segoe UI", 9),
+                      relief="flat", bg=WHITE,
+                      highlightbackground=FBC_MID, highlightthickness=1,
+                      wrap="none")
+        txt.insert("1.0", "\n".join(initial_list))
+        txt.pack(fill="x", pady=(0, 4))
+        return txt
+
+    def _parse(self, widget):
+        raw = widget.get("1.0", "end").strip()
+        return [ln.strip() for ln in raw.splitlines() if ln.strip()]
+
+    def _save(self):
+        to_result = self._parse(self._to_frame) if self._has_to else None
+        cc_result = self._parse(self._cc_frame)
+        self._on_save(to_result, cc_result)
+        self.destroy()
+
+
+# ════════════════════════════════════════════════════════════════════════════
 #  ── SARESTOCK LOGIC ────────────────────────────────────────────────────────
 # ════════════════════════════════════════════════════════════════════════════
 STATE_FILE = os.path.join(os.path.expanduser("~"), ".fbc_ticket_state.json")
@@ -377,21 +487,18 @@ PREVIEW_COLS = ["Exchange","Market","Participant","Custodian","Client",
                 "Symbol","Buy/Sell","Price","Volume","Ticket No."]
 
 SARESTOCK_EMAIL_SUBJECT = "DEALS CONFIRMATION"
+
 def get_sarestock_email_body(sender_name=""):
     name = sender_name.strip() or "FBC Securities"
     return f"Good day,\r\n\r\nKindly find attached for deals confirmation.\r\n\r\nRegards,\r\n{name}."
-SARESTOCK_EMAIL_TO = "Anesu.Zingundu@fbc.co.zw"
-SARESTOCK_EMAIL_CC = ";".join([
-    "Enock.Rukarwa@fbc.co.zw","Manatsa.Tagwireyi@fbc.co.zw",
-    "Norman.Chirima@fbc.co.zw","Richard.Mashava@fbc.co.zw","Anashe.Masomeke@fbc.co.zw"
-])
 
 FIELD_MAP = [
     ("Security","Symbol"),("SCA Code","Custodian"),("Buy/Sell","Buy/Sell"),
-    ("Quantity","Volume + Filled Vol."),("Price","Yield"),("Trader","Trader + Order Init."),
+    ("Quantity","Volume + Filled Vol."),("Price","Yield"),
+    ("Ticket No.","Match Reference"),("Trader","Trader + Order Init."),
     ("VFX → VFEX","Exchange (+E)"),("VFEX = FBCSZWVX","Participant (fixed)"),
     ("ZSE = FBCSZWHX","Participant (fixed)"),("…-02 → …-0002","Client (zero-pad)"),
-    ("DD/MM/YYYY …","Date/Time (auto)"),("Auto counter","Ticket No. (unique)"),
+    ("DD/MM/YYYY …","Date/Time (auto)"),
 ]
 
 def _today_prefix():
@@ -440,6 +547,7 @@ def pad_client(c):
 def get_now():
     d=datetime.now()
     return f"{d.day}/{d.month}/{d.year} {d.hour}:{d.minute:02d}"
+
 def stamp():
     d=datetime.now(); return f"{d.day}_{d.month}_{d.year}"
 
@@ -454,7 +562,7 @@ def transform_rows(raw_rows):
             "Trader":r.get("Trader",""),"Short Sell":"NO",
             "Price":r.get("Yield",""),"Volume":r.get("Quantity",""),
             "Yield %":"0","Accrued Interest":"0","Order No.":"",
-            "Ticket No.":tickets[i],"Date/Time":now,"Execution Date/Time":now,
+            "Ticket No.":r.get("Match Reference"),
             "Type":"Limit","Filled Volume":r.get("Quantity",""),
             "Remaining Volume":"0","Disc. Volume":"0","Trigger Price":"0",
             "Order Initiator":r.get("Trader",""),"Pricing Mechanism":""
@@ -464,10 +572,7 @@ def transform_rows(raw_rows):
 def generate_csv(rows, out_dir, label):
     label = label.upper()
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = os.path.join(
-        out_dir,
-        f"ExportExecutedOrders_{label}_{ts}.csv"
-    )
+    path = os.path.join(out_dir, f"ExportExecutedOrders_{label}_{ts}.csv")
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=EO_HEADERS)
         w.writeheader()
@@ -481,55 +586,39 @@ def generate_matched_excel(source_path, raw_rows, out_dir):
     ext = os.path.splitext(source_path)[1] if source_path else ".xlsx"
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest = os.path.join(out_dir, f"MATCHED TRADES, {label}_{ts}{ext}")
-
     src_norm = os.path.normcase(os.path.abspath(source_path))
     dst_norm = os.path.normcase(os.path.abspath(dest))
-
     if src_norm == dst_norm:
-        return dest  # already the right file, just return it
-
+        return dest
     try:
         _shutil.copy2(source_path, dest)
     except PermissionError:
         raise PermissionError(
             f"Could not copy '{os.path.basename(source_path)}' — "
-            "please close it in Excel and try again."
-        )
+            "please close it in Excel and try again.")
     return dest
 
 def generate_pdf(raw_rows, raw_headers, out_dir):
-    """
-    Generate a wide single-layout PDF where ALL columns are placed side-by-side
-    on one custom-width page.  No column grouping / no 'Column group X of Y'.
-    Rows that exceed the page HEIGHT overflow to a new page of the same width,
-    with the column header repeated.  Open in any PDF viewer and scroll
-    left/right to see every column.
-    """
     _require("fpdf", "fpdf2")
     from fpdf import FPDF
-    from datetime import datetime
 
-    # ── Layout constants ──────────────────────────────────────────────────
-    FONT_SIZE  = 6.5          # pt  — Courier body text
-    LINE_H     = 5.0          # mm  — data row height
-    HEADER_H   = 6.5          # mm  — column-header row height
-    CHAR_W     = FONT_SIZE * 0.50   # mm per character (Courier)
-    MAX_CHARS  = 28           # truncate displayed text beyond this length
-    MIN_COL_MM = 8            # floor column width
-    MAX_COL_MM = 55           # ceiling column width
-    MARGIN     = 8            # page margin mm
-    PAGE_H_MM  = 210          # A4 height used as the page height (landscape)
+    FONT_SIZE  = 6.5
+    LINE_H     = 5.0
+    HEADER_H   = 6.5
+    CHAR_W     = FONT_SIZE * 0.50
+    MAX_CHARS  = 28
+    MIN_COL_MM = 8
+    MAX_COL_MM = 55
+    MARGIN     = 8
+    PAGE_H_MM  = 210
 
     def _safe(text):
-        """Replace characters outside latin-1 so Courier font stays happy."""
         return str(text).encode("latin-1", errors="replace").decode("latin-1")
 
-    # ── Detect exchange ───────────────────────────────────────────────────
     exch_raw = (raw_rows[0].get("Market", "") or "").strip().upper() if raw_rows else ""
     exch = "VFEX" if exch_raw in ("VFX", "VFEX") else "ZSE"
     out_path = os.path.join(out_dir, f"MATCHED TRADES, {exch}.pdf")
 
-    # ── Compute per-column widths ─────────────────────────────────────────
     def _col_w(hdr, rows, key):
         mx = len(str(hdr))
         for r in rows:
@@ -538,18 +627,11 @@ def generate_pdf(raw_rows, raw_headers, out_dir):
         return max(MIN_COL_MM, min(MAX_COL_MM, mx * CHAR_W))
 
     col_widths = [_col_w(h, raw_rows, h) for h in raw_headers]
-
-    # ── Total content width → custom page width ───────────────────────────
-    # All columns fit on ONE width — absolutely no grouping.
     total_content_w = sum(col_widths)
     page_w = total_content_w + 2 * MARGIN
-
     ts_label   = datetime.now().strftime("%d %b %Y  %H:%M")
     total_rows = len(raw_rows)
 
-    # ── Build PDF with custom page size ──────────────────────────────────
-    # FPDF format=(height, width) in landscape — we supply a wide custom width
-    # so every column sits side-by-side on the same horizontal band.
     pdf = FPDF(orientation="L", unit="mm", format=(PAGE_H_MM, page_w))
     pdf.set_margins(MARGIN, MARGIN, MARGIN)
     pdf.set_auto_page_break(auto=True, margin=14)
@@ -560,8 +642,7 @@ def generate_pdf(raw_rows, raw_headers, out_dir):
         label = _safe(
             f"MATCHED TRADES - {exch}  |  "
             f"{total_rows} row(s)  |  {ts_label}  |  "
-            f"All {len(raw_headers)} columns — scroll right to see full table"
-        )
+            f"All {len(raw_headers)} columns — scroll right to see full table")
         pdf.cell(0, 4.5, label, border=0, align="L")
         pdf.ln(6)
         pdf.set_text_color(0, 0, 0)
@@ -572,7 +653,6 @@ def generate_pdf(raw_rows, raw_headers, out_dir):
         for i, h in enumerate(raw_headers):
             pdf.cell(col_widths[i], HEADER_H, _safe(str(h)[:MAX_CHARS]), border=0, align="L")
         pdf.ln()
-        # thin horizontal rule under the header row
         y = pdf.get_y()
         pdf.set_draw_color(150, 150, 150)
         pdf.line(MARGIN, y, page_w - MARGIN, y)
@@ -583,7 +663,6 @@ def generate_pdf(raw_rows, raw_headers, out_dir):
         pdf.set_font("Courier", size=FONT_SIZE)
         pdf.set_text_color(0, 0, 0)
         for row in raw_rows:
-            # Height overflow → new page at same width, repeat column header
             if pdf.get_y() > pdf.h - 16:
                 pdf.add_page()
                 _page_header()
@@ -599,20 +678,25 @@ def generate_pdf(raw_rows, raw_headers, out_dir):
     _page_header()
     _draw_col_headers()
     _draw_data_rows()
-
     pdf.output(out_path)
     return out_path
 
 
 def open_sarestock_outlook(file_paths, sender_name=""):
+    """Open Outlook deals-confirmation email using saved To/CC recipients."""
     _require("win32com.client","pywin32")
     import win32com.client as win32
-    outlook=win32.Dispatch("outlook.application"); mail=outlook.CreateItem(0)
-    mail.Subject=SARESTOCK_EMAIL_SUBJECT; mail.Body=get_sarestock_email_body(sender_name)
-    mail.To=SARESTOCK_EMAIL_TO; mail.CC=SARESTOCK_EMAIL_CC
+    to_list, cc_list = load_sarestock_recipients()
+    outlook = win32.Dispatch("outlook.application")
+    mail    = outlook.CreateItem(0)
+    mail.Subject = SARESTOCK_EMAIL_SUBJECT
+    mail.Body    = get_sarestock_email_body(sender_name)
+    mail.To  = "; ".join(to_list)
+    mail.CC  = "; ".join(cc_list)
     for fp in file_paths:
         if fp and os.path.exists(fp): mail.Attachments.Add(fp)
     mail.Display(True)
+
 
 # ════════════════════════════════════════════════════════════════════════════
 #  ── EMAILER LOGIC ──────────────────────────────────────────────────────────
@@ -652,7 +736,7 @@ def _get_gsheet():
     except ImportError:
         return None, "gspread not installed. Run: pip install gspread google-auth"
     cfg = _load_sync_config()
-    sa_path = cfg.get("service_account_path", "")
+    sa_path  = cfg.get("service_account_path", "")
     sheet_id = cfg.get("sheet_id", "")
     if not sa_path or not sheet_id:
         return None, "sync_not_configured"
@@ -708,7 +792,8 @@ def pull_contacts_from_sheet():
 KNOWN_CUSTODIANS = ["FBCZSEZW","CBZCZWHX","STINZWVX","CBCZSEZW","FBCSZWVX"]
 
 CUSTODIAN_PREFIX_MAP = [
-    ("FBC","FBCZSEZW"),("CBC","CBCZSEZW"),("CBZ","CBZCZWHX"),("STIN","STINZWVX"),("STIZ", "STINZWVX"),
+    ("FBC","FBCZSEZW"),("CBC","CBCZSEZW"),("CBZ","CBZCZWHX"),
+    ("STIN","STINZWVX"),("STIZ","STINZWVX"),
 ]
 
 _FBC_CC = [
@@ -719,6 +804,7 @@ _FBC_CC = [
     "Anesu Zingundu <Anesu.Zingundu@fbc.co.zw>",
 ]
 
+# Default routing (used when no override is saved for a custodian)
 CUSTODIAN_ROUTING = {
     "FBCZSEZW":{"label":"FBC Securities (ZSE)",
         "to":["Faith Chikati <Faith.Chikati@fbc.co.zw>"],
@@ -737,6 +823,18 @@ CUSTODIAN_ROUTING = {
         "cc":["Custodial Services <CustodialServices@fbc.co.zw>"]+_FBC_CC},
 }
 
+def get_effective_custodian_routing(code):
+    """Return routing dict merging saved overrides on top of defaults."""
+    base     = CUSTODIAN_ROUTING.get(code, {})
+    override = load_custodian_overrides().get(code, {})
+    if not base:
+        return None
+    return {
+        "label": base["label"],
+        "to":    override.get("to", base["to"]),
+        "cc":    override.get("cc", base["cc"]),
+    }
+
 def get_custodian_body(multi=False, sender_name=""):
     name = sender_name.strip() or "FBC Securities"
     if multi:
@@ -748,8 +846,6 @@ def get_client_body(client, multi=False, sender_name=""):
     if multi:
         return f"Dear {client},\r\n\r\nPlease find attached your deal notes for today's transactions.\r\n\r\nRegards,\r\n{name}."
     return f"Dear {client},\r\n\r\nPlease find attached your deal note for today's transaction.\r\n\r\nRegards,\r\n{name}."
-
-CLIENT_CC = _FBC_CC
 
 def _name_tokens(name):
     return frozenset(w.strip() for w in name.upper().split() if w.strip())
@@ -812,35 +908,26 @@ def parse_client_name_from_pdf(pdf_path):
         "ECONET", "INFRA", "FIRST BANKING", "PFUMA", "ISIN",
         "SUB TOTAL", "VAT TOTAL", "INVOICE TOTAL", "76 S.", "TEL:", "VAT:",
     ]
-
     def _is_valid(c):
         c = c.strip().upper()
-        if len(c) < 4:
-            return False
-        if re.match(r'^[\d\s/\-\.,%]+$', c):
-            return False
-        if any(skip in c for skip in SKIP_WORDS):
-            return False
+        if len(c) < 4: return False
+        if re.match(r'^[\d\s/\-\.,%]+$', c): return False
+        if any(skip in c for skip in SKIP_WORDS): return False
         return True
-
     try:
         import fitz
-        doc = fitz.open(pdf_path)
+        doc  = fitz.open(pdf_path)
         text = doc[0].get_text()
         doc.close()
-
         m = re.search(r'Deal Date\s+[\d/\-]+\s*\n\s*(.+)', text)
         if m:
             candidate = m.group(1).strip().upper()
-            if _is_valid(candidate):
-                return candidate
-
+            if _is_valid(candidate): return candidate
         m = re.search(r'Fiscal Tax Invoice\s*\n+([^\n]{4,80})\n', text, re.IGNORECASE)
         if m:
             candidate = m.group(1).strip().upper()
             if _is_valid(candidate) and not re.search(r'\d{4}/\d{2}/\d{2}', candidate):
                 return candidate
-
         lines = [l.strip() for l in text.split('\n') if l.strip()]
         for line in lines:
             upper = line.upper()
@@ -849,7 +936,6 @@ def parse_client_name_from_pdf(pdf_path):
                     and len(upper) > 8
                     and _is_valid(upper)):
                 return upper
-
     except Exception:
         pass
     return None
@@ -893,6 +979,7 @@ def open_outlook(to_list,cc_list,subject,body,attachments):
     except ImportError: raise ImportError("pywin32 not installed.\n\nRun:  pip install pywin32")
     except Exception as e: raise RuntimeError(f"Outlook error: {e}")
 
+
 # ════════════════════════════════════════════════════════════════════════════
 #  CONTACTS DIALOG
 # ════════════════════════════════════════════════════════════════════════════
@@ -911,25 +998,19 @@ class ContactsDialog(tk.Toplevel):
         tk.Label(hdr,text=f"  {len(self.contacts)} clients saved",bg=FBC_DARK,fg="#90CAF9",
                  font=("Segoe UI",9)).pack(side="left",padx=8)
         tk.Button(hdr,text="☁ Setup Sync",command=self._setup_sync,
-                  bg=FBC_ACCENT,fg=WHITE,relief="flat",
-                  font=("Segoe UI",8,"bold"),cursor="hand2",
-                  padx=8,pady=3).pack(side="right",padx=(0,4))
+                  bg=FBC_ACCENT,fg=WHITE,relief="flat",font=("Segoe UI",8,"bold"),
+                  cursor="hand2",padx=8,pady=3).pack(side="right",padx=(0,4))
         tk.Button(hdr,text="⬆ Push to Sheet",command=self._push_to_sheet,
-                  bg="#1A6B3A",fg=WHITE,relief="flat",
-                  font=("Segoe UI",8,"bold"),cursor="hand2",
-                  padx=8,pady=3).pack(side="right",padx=(0,4))
+                  bg="#1A6B3A",fg=WHITE,relief="flat",font=("Segoe UI",8,"bold"),
+                  cursor="hand2",padx=8,pady=3).pack(side="right",padx=(0,4))
         tk.Button(hdr,text="⬇ Pull from Sheet",command=self._pull_from_sheet,
-                  bg="#1A3A6B",fg=WHITE,relief="flat",
-                  font=("Segoe UI",8,"bold"),cursor="hand2",
-                  padx=8,pady=3).pack(side="right",padx=(0,8))
+                  bg="#1A3A6B",fg=WHITE,relief="flat",font=("Segoe UI",8,"bold"),
+                  cursor="hand2",padx=8,pady=3).pack(side="right",padx=(0,8))
 
         body=tk.Frame(self,bg=BG); body.pack(fill="both",expand=True,padx=12,pady=10)
-
         left=tk.Frame(body,bg=WHITE,relief="flat",bd=1); left.pack(side="left",fill="y",padx=(0,8))
-
         tk.Label(left,text="Clients",bg=FBC_MID,fg=WHITE,
                  font=("Segoe UI",9,"bold"),pady=6,padx=8).pack(fill="x")
-
         s_frame=tk.Frame(left,bg=WHITE,padx=4,pady=4); s_frame.pack(fill="x")
         tk.Label(s_frame,text="🔍",bg=WHITE,font=("Segoe UI",10)).pack(side="left")
         self.search_var=tk.StringVar()
@@ -941,7 +1022,6 @@ class ContactsDialog(tk.Toplevel):
         tk.Button(s_frame,text="✕",command=lambda:(self.search_var.set(""),search_entry.focus()),
                   bg=WHITE,fg="#8096B0",relief="flat",font=("Segoe UI",8),
                   cursor="hand2",padx=2).pack(side="left")
-
         lb_frame=tk.Frame(left,bg=WHITE); lb_frame.pack(fill="both",expand=True,padx=4,pady=(0,4))
         self.listbox=tk.Listbox(lb_frame,width=26,font=("Segoe UI",9),
                                 selectbackground=FBC_MID,activestyle="none",
@@ -951,23 +1031,19 @@ class ContactsDialog(tk.Toplevel):
         self.listbox.pack(side="left",fill="both",expand=True)
         lb_sb.pack(side="right",fill="y")
         self.listbox.bind("<<ListboxSelect>>",self._on_select)
-
         br=tk.Frame(left,bg=WHITE); br.pack(fill="x",padx=4,pady=(0,6))
         tk.Button(br,text="+ Add",command=self._add,bg=GREEN_DARK,fg=WHITE,
                   relief="flat",font=("Segoe UI",8,"bold"),cursor="hand2").pack(side="left",padx=(0,4))
         tk.Button(br,text="✕ Delete",command=self._delete,bg=RED_DARK,fg=WHITE,
                   relief="flat",font=("Segoe UI",8,"bold"),cursor="hand2").pack(side="left")
-
         right=tk.Frame(body,bg=WHITE,relief="flat",bd=1); right.pack(side="left",fill="both",expand=True)
         tk.Label(right,text="Contact Details",bg=FBC_MID,fg=WHITE,
                  font=("Segoe UI",9,"bold"),pady=6,padx=8).pack(fill="x")
         self.detail=tk.Frame(right,bg=WHITE); self.detail.pack(fill="both",expand=True,padx=14,pady=12)
         self._show_detail(None)
-
         bot=tk.Frame(self,bg=BG); bot.pack(fill="x",padx=12,pady=(0,10))
         tk.Button(bot,text="💾  Save & Close",command=self._save,bg=FBC_MID,fg=WHITE,
                   font=("Segoe UI",10,"bold"),relief="flat",padx=16,pady=8,cursor="hand2").pack(side="right")
-
         self._filter_list()
 
     def _filter_list(self):
@@ -981,8 +1057,7 @@ class ContactsDialog(tk.Toplevel):
                 if self.listbox.get(i)==self._current_name:
                     self.listbox.selection_set(i); break
 
-    def _refresh_list(self):
-        self._filter_list()
+    def _refresh_list(self): self._filter_list()
 
     def _on_select(self,_=None):
         sel=self.listbox.curselection()
@@ -995,38 +1070,28 @@ class ContactsDialog(tk.Toplevel):
         if not name:
             tk.Label(self.detail,text="Select a client on the left\nto view or edit their details.",
                      bg=WHITE,fg="#8096B0",font=("Segoe UI",9),justify="center").pack(pady=30); return
-
         data=self.contacts.get(name,{"email":""})
-
         tk.Label(self.detail,text="Client Name:",bg=WHITE,fg="#607080",
                  font=("Segoe UI",8,"bold")).pack(anchor="w")
         name_row=tk.Frame(self.detail,bg=WHITE); name_row.pack(fill="x",pady=(2,10))
         self.entry_name=tk.Entry(name_row,font=("Segoe UI",10),width=34)
         self.entry_name.insert(0,name)
         self.entry_name.pack(side="left")
-        tk.Button(name_row,text="✏ Rename",
-                  command=lambda n=name:self._rename(n),
-                  bg=FBC_MID,fg=WHITE,relief="flat",
-                  font=("Segoe UI",8,"bold"),cursor="hand2",
-                  padx=8,pady=4).pack(side="left",padx=6)
-
+        tk.Button(name_row,text="✏ Rename",command=lambda n=name:self._rename(n),
+                  bg=FBC_MID,fg=WHITE,relief="flat",font=("Segoe UI",8,"bold"),
+                  cursor="hand2",padx=8,pady=4).pack(side="left",padx=6)
         tk.Label(self.detail,text="Client Email:",bg=WHITE,fg="#607080",
                  font=("Segoe UI",8,"bold")).pack(anchor="w")
         self.entry_email=tk.Entry(self.detail,font=("Segoe UI",10),width=42)
         self.entry_email.insert(0,data.get("email",""))
         self.entry_email.pack(anchor="w",pady=(2,4))
-
         saved=data.get("email","")
         hint_txt="No email saved yet" if not saved else f"Saved: {saved}"
         hint_col=RED_DARK if not saved else GREEN_DARK
-        tk.Label(self.detail,text=hint_txt,bg=WHITE,fg=hint_col,
-                 font=("Segoe UI",8)).pack(anchor="w",pady=(0,12))
-
-        tk.Button(self.detail,text="✔  Apply Email",
-                  command=lambda n=name:self._apply(n),
-                  bg=GREEN_DARK,fg=WHITE,relief="flat",
-                  font=("Segoe UI",9,"bold"),cursor="hand2",
-                  padx=12,pady=6).pack(anchor="w")
+        tk.Label(self.detail,text=hint_txt,bg=WHITE,fg=hint_col,font=("Segoe UI",8)).pack(anchor="w",pady=(0,12))
+        tk.Button(self.detail,text="✔  Apply Email",command=lambda n=name:self._apply(n),
+                  bg=GREEN_DARK,fg=WHITE,relief="flat",font=("Segoe UI",9,"bold"),
+                  cursor="hand2",padx=12,pady=6).pack(anchor="w")
 
     def _rename(self,old_name):
         new_name=self.entry_name.get().strip().upper()
@@ -1038,8 +1103,7 @@ class ContactsDialog(tk.Toplevel):
             messagebox.showwarning("Duplicate",f"'{new_name}' already exists.",parent=self); return
         self.contacts[new_name]=self.contacts.pop(old_name)
         self._current_name=new_name
-        self._filter_list()
-        self._show_detail(new_name)
+        self._filter_list(); self._show_detail(new_name)
         messagebox.showinfo("Renamed",f"'{old_name}' renamed.\n\nClick 'Save & Close' to keep this change.",parent=self)
 
     def _apply(self,name):
@@ -1135,12 +1199,11 @@ class ContactsDialog(tk.Toplevel):
         self.on_save(self.contacts)
         def _push():
             ok, msg = push_contacts_to_sheet(self.contacts)
-            if ok:
-                print(f"[Sync] {msg}")
-            elif msg and msg != "sync_not_configured":
-                print(f"[Sync error] {msg}")
+            if ok: print(f"[Sync] {msg}")
+            elif msg and msg != "sync_not_configured": print(f"[Sync error] {msg}")
         threading.Thread(target=_push, daemon=True).start()
         self.destroy()
+
 
 # ════════════════════════════════════════════════════════════════════════════
 #  SARESTOCK PAGE
@@ -1202,6 +1265,13 @@ class SarestockPage(tk.Frame):
         tk.Button(path_row,text="Change...",command=self._pick_outdir,bg="#1A3A6B",fg="#90CAF9",
                   relief="flat",font=("Segoe UI",8),cursor="hand2",padx=6,pady=2).pack(side="left")
 
+        # ── Configure Deals Confirmation Recipients button ──────────────────
+        tk.Button(path_row, text="⚙ Configure Recipients",
+                  command=self._configure_recipients,
+                  bg=FBC_ACCENT, fg=WHITE, relief="flat",
+                  font=("Segoe UI", 8, "bold"), cursor="hand2",
+                  padx=8, pady=2).pack(side="left", padx=(12, 0))
+
         tk.Button(path_row, text="Clear Uploads", command=self._clear_uploads,
                   bg=RED_DARK, fg=WHITE, relief="flat",
                   font=("Segoe UI", 8, "bold"), cursor="hand2",
@@ -1221,16 +1291,45 @@ class SarestockPage(tk.Frame):
             command=self._send_email_both,bg=FBC_MID,fg=WHITE,font=("Segoe UI",11,"bold"),
             relief="flat",pady=9,cursor="hand2",state="disabled")
         self.btn_email_both.grid(row=0,column=2,sticky="ew")
-        tk.Label(bar,text="Each email attaches: Matched Trades PDF + original file  |  Pre-fills To, CC and Subject",
-                 bg=BOTTOM,fg="#5D7A99",font=("Segoe UI",8)).pack(pady=(4,0))
+
+        # Recipient summary label (live feedback of current To/CC)
+        self.lbl_recip_summary = tk.Label(bar, text="", bg=BOTTOM, fg="#5D7A99",
+                                          font=("Segoe UI", 8))
+        self.lbl_recip_summary.pack(pady=(4, 0))
+        self._refresh_recip_summary()
+
+    def _refresh_recip_summary(self):
+        to_list, cc_list = load_sarestock_recipients()
+        to_str = "; ".join(to_list) if to_list else "(none)"
+        cc_str = f"{len(cc_list)} CC address{'es' if len(cc_list)!=1 else ''}"
+        self.lbl_recip_summary.config(
+            text=f"Deals Confirmation  →  To: {to_str}  |  {cc_str}  "
+                 f"  (click ⚙ Configure Recipients to change)")
+
+    def _configure_recipients(self):
+        to_list, cc_list = load_sarestock_recipients()
+        def on_save(new_to, new_cc):
+            save_sarestock_recipients(new_to or [], new_cc)
+            self._refresh_recip_summary()
+            messagebox.showinfo("Saved",
+                "Deals Confirmation recipients updated.\n\n"
+                "All future sends will use the new addresses.", parent=self)
+        RecipientsDialog(
+            self,
+            title="⚙  Deals Confirmation — Configure Recipients",
+            to_list=to_list,
+            cc_list=cc_list,
+            on_save=on_save,
+            to_label="To  (primary recipients — required)",
+            cc_label="CC  (copied recipients)",
+        )
 
     def _clear_uploads(self):
         has_data = bool(self.source_path or self.source_path2)
         if not has_data:
             messagebox.showinfo("Nothing to Clear", "No files are currently loaded.")
             return
-        if not messagebox.askyesno(
-                "Clear Uploads",
+        if not messagebox.askyesno("Clear Uploads",
                 "Clear all uploaded matched trades files and start fresh?\n\n"
                 "This does NOT delete any files from disk."):
             return
@@ -1246,10 +1345,8 @@ class SarestockPage(tk.Frame):
         self.info_bar1.pack_forget()
         for w in self.info_bar2.winfo_children(): w.pack_forget()
         self.info_bar2.pack_forget()
-        self.lbl_csv_done.config(text="")
-        self.lbl_pdf_done.config(text="")
-        self.lbl_csv2_done.config(text="")
-        self.lbl_pdf2_done.config(text="")
+        self.lbl_csv_done.config(text=""); self.lbl_pdf_done.config(text="")
+        self.lbl_csv2_done.config(text=""); self.lbl_pdf2_done.config(text="")
         self.btn_csv.config(text="Download CSV", bg=FBC_MID, state="disabled")
         self.btn_pdf.config(text="Download PDF", bg=RED_DARK, state="disabled")
         self.btn_csv2.config(text="Download CSV", bg=FBC_MID, state="disabled")
@@ -1521,6 +1618,7 @@ class SarestockPage(tk.Frame):
             self._clear_uploads()
             self._refresh_ticket()
 
+
 # ════════════════════════════════════════════════════════════════════════════
 #  EMAILER PAGE
 # ════════════════════════════════════════════════════════════════════════════
@@ -1567,24 +1665,18 @@ class EmailerPage(tk.Frame):
         self.lbl_name_hint.pack(side="right")
 
         fp=tk.Frame(self,bg=WHITE,padx=16,pady=12); fp.pack(fill="x",padx=16,pady=(12,0))
-
         btn_row=tk.Frame(fp,bg=WHITE); btn_row.pack(fill="x")
         tk.Button(btn_row,text="Choose Deal Notes Folder",command=self._pick_folder,
                   bg=FBC_MID,fg=WHITE,relief="flat",font=("Segoe UI",10,"bold"),
                   cursor="hand2",padx=14,pady=8).pack(side="left")
-
-        tk.Label(btn_row,text="  or  ",bg=WHITE,fg="#8096B0",
-                 font=("Segoe UI",9)).pack(side="left")
-
+        tk.Label(btn_row,text="  or  ",bg=WHITE,fg="#8096B0",font=("Segoe UI",9)).pack(side="left")
         tk.Button(btn_row,text="Select Individual Deal Note(s)",command=self._pick_individual_files,
                   bg="#4051B5",fg=WHITE,relief="flat",font=("Segoe UI",10,"bold"),
                   cursor="hand2",padx=14,pady=8).pack(side="left")
-
         self.btn_clear=tk.Button(btn_row,text="Clear All Uploads",command=self._clear_uploads,
                   bg=RED_DARK,fg=WHITE,relief="flat",font=("Segoe UI",9,"bold"),
                   cursor="hand2",padx=10,pady=8,state="disabled")
         self.btn_clear.pack(side="right")
-
         info_row=tk.Frame(fp,bg=WHITE); info_row.pack(fill="x",pady=(6,0))
         self.lbl_folder=tk.Label(info_row,text="No files loaded",bg=WHITE,fg="#8096B0",font=("Segoe UI",9))
         self.lbl_folder.pack(side="left")
@@ -1603,6 +1695,7 @@ class EmailerPage(tk.Frame):
         self._build_custodian_tab()
         self._build_client_tab()
 
+    # ── Custodian tab ────────────────────────────────────────────────────────
     def _build_custodian_tab(self):
         p=self.tab_cust
         tk.Label(p,text="Groups all PDFs by custodian - one email per custodian with all their deal notes attached.",
@@ -1628,21 +1721,17 @@ class EmailerPage(tk.Frame):
         groups={}
         for item in self.deal_items: groups.setdefault(item["custodian"],[]).append(item)
         for code,items in sorted(groups.items()):
-            routing=CUSTODIAN_ROUTING.get(code)
+            routing = get_effective_custodian_routing(code)
             sent = code in self.sent_custodians
-            if sent:
-                head_color = "#1A6B3A"
-                card_bg    = "#F0FBF4"
-            else:
-                head_color = FBC_MID if routing else RED_DARK
-                card_bg    = WHITE
+            head_color = "#1A6B3A" if sent else (FBC_MID if routing else RED_DARK)
+            card_bg    = "#F0FBF4" if sent else WHITE
             card=tk.Frame(self.cust_body,bg=card_bg,pady=0,padx=0)
             card.pack(fill="x",padx=4,pady=(0,10))
             head=tk.Frame(card,bg=head_color,pady=7,padx=12); head.pack(fill="x")
             label=routing["label"] if routing else "UNKNOWN CUSTODIAN"
             count=len(items)
-            status_badge = "  SENT" if sent else ""
-            tk.Label(head,text=f"{code}  -  {label}{status_badge}",bg=head_color,fg=WHITE,
+            status_badge = "  ✓ SENT" if sent else ""
+            tk.Label(head,text=f"{code}  —  {label}{status_badge}",bg=head_color,fg=WHITE,
                      font=("Segoe UI",10,"bold")).pack(side="left")
             tk.Label(head,text=f"{count} deal note{'s' if count>1 else ''}",
                      bg=head_color,fg=WHITE,font=("Segoe UI",9)).pack(side="right")
@@ -1651,35 +1740,77 @@ class EmailerPage(tk.Frame):
                 tk.Label(inner,text=f"  {it['fname']}",bg=card_bg,fg="#2D3748",font=("Segoe UI",9)).pack(anchor="w")
             if routing:
                 subj=f"DEAL NOTE{'S' if count>1 else ''} - {datetime.now().strftime('%d %b %Y')}"
-                tk.Label(inner,text=f"Subject: {subj}",bg=card_bg,fg="#607080",font=("Segoe UI",8,"italic")).pack(anchor="w",pady=(6,0))
-                tk.Label(inner,text=f"To: {'; '.join(routing['to'])}",bg=card_bg,fg="#607080",font=("Segoe UI",8)).pack(anchor="w")
-                btn_text = f"Sent  ({count} file{'s' if count>1 else ''} attached)" if sent \
-                           else f"Open in Outlook  ({count} file{'s' if count>1 else ''} attached)"
+                tk.Label(inner,text=f"Subject: {subj}",bg=card_bg,fg="#607080",
+                         font=("Segoe UI",8,"italic")).pack(anchor="w",pady=(6,0))
+                tk.Label(inner,text=f"To: {'; '.join(routing['to'])}",bg=card_bg,
+                         fg="#607080",font=("Segoe UI",8)).pack(anchor="w")
+                cc_summary = f"CC: {len(routing['cc'])} address{'es' if len(routing['cc'])!=1 else ''}"
+                tk.Label(inner,text=cc_summary,bg=card_bg,fg="#8096B0",font=("Segoe UI",8)).pack(anchor="w")
+
+                action_row = tk.Frame(inner, bg=card_bg)
+                action_row.pack(anchor="w", pady=(8,0))
+
+                # Send button
+                btn_text = f"✓ Sent  ({count} file{'s' if count>1 else ''})" if sent \
+                           else f"Open in Outlook  ({count} file{'s' if count>1 else ''})"
                 btn_bg   = "#2E7D32" if sent else FBC_MID
-                btn=tk.Button(inner,text=btn_text,
-                    command=lambda c=code:self._cust_send_one(c),bg=btn_bg,fg=WHITE,relief="flat",
+                btn=tk.Button(action_row, text=btn_text,
+                    command=lambda c=code: self._cust_send_one(c),
+                    bg=btn_bg, fg=WHITE, relief="flat",
                     font=("Segoe UI",9,"bold"),
                     cursor="arrow" if sent else "hand2",
                     state="disabled" if sent else "normal",
                     disabledforeground=WHITE,
-                    padx=10,pady=6)
-                if sent:
-                    btn.config(bg="#2E7D32")
-                btn.pack(anchor="w",pady=(8,0)); self.cust_btn_map[code]=btn
+                    padx=10, pady=6)
+                btn.pack(side="left", padx=(0, 8))
+                self.cust_btn_map[code] = btn
+
+                # Edit Recipients button (always visible per custodian)
+                tk.Button(action_row, text="⚙ Edit Recipients",
+                          command=lambda c=code: self._edit_custodian_recipients(c),
+                          bg=FBC_ACCENT, fg=WHITE, relief="flat",
+                          font=("Segoe UI",8,"bold"), cursor="hand2",
+                          padx=8, pady=6).pack(side="left")
             else:
                 tk.Label(inner,text="No routing configured for this custodian code.",
                          bg=card_bg,fg=RED_DARK,font=("Segoe UI",9)).pack(anchor="w")
-        known=sum(1 for c in groups if c in CUSTODIAN_ROUTING)
-        unsent=sum(1 for c in groups if c in CUSTODIAN_ROUTING and c not in self.sent_custodians)
+
+        known  = sum(1 for c in groups if c in CUSTODIAN_ROUTING)
+        unsent = sum(1 for c in groups if c in CUSTODIAN_ROUTING and c not in self.sent_custodians)
         self.btn_send_all_cust.config(
             state="normal" if unsent else "disabled",
             text=f"Send ALL {known} Custodian Email{'s' if known!=1 else ''} in Outlook"
                  + (f"  ({known - unsent} already sent)" if known > unsent else ""))
         self.lbl_cust_hint.config(
-            text=f"  {len(self.deal_items)} deal note(s) across {len(groups)} custodian(s).",fg=GREEN_DARK)
+            text=f"  {len(self.deal_items)} deal note(s) across {len(groups)} custodian(s).",
+            fg=GREEN_DARK)
+
+    def _edit_custodian_recipients(self, code):
+        """Open RecipientsDialog pre-filled with that custodian's current To/CC."""
+        routing = get_effective_custodian_routing(code)
+        if not routing:
+            messagebox.showwarning("Unknown", f"No default routing for {code}.", parent=self)
+            return
+        def on_save(new_to, new_cc):
+            overrides = load_custodian_overrides()
+            overrides[code] = {"to": new_to or routing["to"], "cc": new_cc}
+            save_custodian_overrides(overrides)
+            self._render_custodian_tab()   # refresh cards to show new addresses
+            messagebox.showinfo("Saved",
+                f"Recipients for {code} updated.\nNew addresses will be used on the next send.",
+                parent=self)
+        RecipientsDialog(
+            self,
+            title=f"⚙  {routing['label']} — Edit Recipients",
+            to_list=routing["to"],
+            cc_list=routing["cc"],
+            on_save=on_save,
+            to_label=f"To  (primary recipients for {code})",
+            cc_label=f"CC  (copied recipients for {code})",
+        )
 
     def _cust_send_one(self,code):
-        routing=CUSTODIAN_ROUTING.get(code)
+        routing = get_effective_custodian_routing(code)
         if not routing: messagebox.showwarning("Unknown",f"No routing for {code}."); return
         items=[it for it in self.deal_items if it["custodian"]==code]
         count=len(items)
@@ -1689,7 +1820,7 @@ class EmailerPage(tk.Frame):
             open_outlook(routing["to"],routing["cc"],subj,body,[it["path"] for it in items])
             self.sent_custodians.add(code)
             if code in self.cust_btn_map:
-                self.cust_btn_map[code].config(text="Sent",bg="#2E7D32")
+                self.cust_btn_map[code].config(text="✓ Sent",bg="#2E7D32")
                 self.after(300, self._render_custodian_tab)
         except ImportError as e: messagebox.showerror("pywin32 not installed",str(e))
         except Exception as e: messagebox.showerror("Outlook Error",str(e))
@@ -1703,10 +1834,23 @@ class EmailerPage(tk.Frame):
         for code in codes: self._cust_send_one(code)
         messagebox.showinfo("Done",f"  {len(codes)} Outlook window(s) opened.")
 
+    # ── Client tab ───────────────────────────────────────────────────────────
     def _build_client_tab(self):
         p=self.tab_client
-        tk.Label(p,text="Sends one email per client with all their deal notes attached. Add emails via 'Manage Client Contacts'.",
-                 bg=BG,fg="#607080",font=("Segoe UI",9)).pack(anchor="w",padx=16,pady=(10,0))
+
+        # ── Configure Client CC button row ────────────────────────────────
+        cc_bar = tk.Frame(p, bg=BG)
+        cc_bar.pack(fill="x", padx=16, pady=(10, 0))
+        tk.Label(cc_bar,
+                 text="Sends one email per client with all their deal notes attached. "
+                      "Add emails via 'Manage Client Contacts'.",
+                 bg=BG, fg="#607080", font=("Segoe UI",9)).pack(side="left")
+        tk.Button(cc_bar, text="⚙ Configure CC",
+                  command=self._configure_client_cc,
+                  bg=FBC_ACCENT, fg=WHITE, relief="flat",
+                  font=("Segoe UI", 8, "bold"), cursor="hand2",
+                  padx=8, pady=4).pack(side="right")
+
         self.btn_send_everything=tk.Button(p,text="Send ALL Emails (Custodian + Client)",
             command=self._send_everything,bg=FBC_DARK,fg=WHITE,font=("Segoe UI",11,"bold"),
             relief="flat",padx=16,pady=10,cursor="hand2",state="disabled")
@@ -1725,6 +1869,23 @@ class EmailerPage(tk.Frame):
         canvas.create_window((0,0),window=self.client_body,anchor="nw")
         canvas.configure(yscrollcommand=sb.set)
         canvas.pack(side="left",fill="both",expand=True); sb.pack(side="right",fill="y")
+
+    def _configure_client_cc(self):
+        """Open RecipientsDialog (CC only) for the client email CC list."""
+        cc_list = load_client_cc()
+        def on_save(_to, new_cc):
+            save_client_cc(new_cc)
+            messagebox.showinfo("Saved",
+                f"Client email CC updated — {len(new_cc)} address(es) saved.\n\n"
+                "All future client emails will use the new CC list.", parent=self)
+        RecipientsDialog(
+            self,
+            title="⚙  Client Emails — Configure CC",
+            to_list=None,          # CC-only mode
+            cc_list=cc_list,
+            on_save=on_save,
+            cc_label="CC  (all client emails will copy these addresses)",
+        )
 
     def _client_groups(self):
         groups={}
@@ -1762,33 +1923,22 @@ class EmailerPage(tk.Frame):
             email=grp["email"]; status=grp["status"]; count=len(grp["items"])
             custodians=", ".join(sorted(set(it["custodian"] for it in grp["items"])))
             sent = client_name in self.sent_clients
-            if sent:
-                bg = "#E8F8EE"
-            else:
-                bg = "#F8FBFF" if i%2==0 else WHITE
+            bg = "#E8F8EE" if sent else ("#F8FBFF" if i%2==0 else WHITE)
             row=tk.Frame(self.client_body,bg=bg); row.pack(fill="x")
-            if sent:
-                sc = "#2E7D32"; st = "Sent"
-            elif status == "ready":
-                sc = FBC_MID; st = "Pending"
-            else:
-                sc = RED_DARK; st = "Missing"
+            sc = "#2E7D32" if sent else (FBC_MID if status=="ready" else RED_DARK)
+            st = "Sent" if sent else ("Pending" if status=="ready" else "Missing")
             file_label=f"{count} file{'s' if count>1 else ''}"
             for v,w in zip([str(i+1),client_name[:20],file_label,custodians[:10],email[:24] or "-",st],widths):
                 tk.Label(row,text=v,bg=bg,fg=(sc if v==st else "#2D3748"),
                          font=("Segoe UI",8),width=w,anchor="w",padx=4,pady=5).pack(side="left")
             if sent:
-                btn=tk.Button(row,text="Sent",
-                    bg="#2E7D32",fg=WHITE,relief="flat",
-                    font=("Segoe UI",8,"bold"),
-                    cursor="arrow",padx=6,pady=3,
+                btn=tk.Button(row,text="✓ Sent",bg="#2E7D32",fg=WHITE,relief="flat",
+                    font=("Segoe UI",8,"bold"),cursor="arrow",padx=6,pady=3,
                     state="disabled",disabledforeground=WHITE)
                 btn.config(bg="#2E7D32")
             else:
-                btn=tk.Button(row,text="Send",
-                    bg=FBC_MID,fg=WHITE,relief="flat",
-                    font=("Segoe UI",8,"bold"),
-                    cursor="hand2",padx=6,pady=3,
+                btn=tk.Button(row,text="Send",bg=FBC_MID,fg=WHITE,relief="flat",
+                    font=("Segoe UI",8,"bold"),cursor="hand2",padx=6,pady=3,
                     state="normal" if status=="ready" else "disabled",
                     disabledforeground="#8096B0",
                     command=lambda cn=client_name:self._client_send_group(cn))
@@ -1816,11 +1966,12 @@ class EmailerPage(tk.Frame):
         subj=f"DEAL{'S' if count>1 else ''} CONFIRMATION"
         body=get_client_body(client=client_name.title(), multi=(count>1), sender_name=self._get_sender())
         paths=[it["path"] for it in grp["items"]]
+        client_cc = load_client_cc()   # always use saved CC
         try:
-            open_outlook([grp["email"]],CLIENT_CC,subj,body,paths)
+            open_outlook([grp["email"]], client_cc, subj, body, paths)
             self.sent_clients.add(client_name)
             if client_name in self.client_group_btns:
-                self.client_group_btns[client_name].config(text="Sent",bg="#2E7D32")
+                self.client_group_btns[client_name].config(text="✓ Sent",bg="#2E7D32")
             self.after(300, self._render_client_tab)
         except ImportError as e: messagebox.showerror("pywin32 not installed",str(e))
         except Exception as e: messagebox.showerror("Outlook Error",str(e))
@@ -1830,7 +1981,8 @@ class EmailerPage(tk.Frame):
         ready=[cn for cn,g in groups.items()
                if g["status"]=="ready" and cn not in self.sent_clients]
         if not ready: messagebox.showinfo("Nothing","No unsent clients with emails found."); return
-        if not messagebox.askyesno("Send All Client Emails",f"Open {len(ready)} Outlook window(s), one per client?\n\nContinue?"): return
+        if not messagebox.askyesno("Send All Client Emails",
+                f"Open {len(ready)} Outlook window(s), one per client?\n\nContinue?"): return
         for cn in ready: self._client_send_group(cn)
         messagebox.showinfo("Done",f"  {len(ready)} Outlook window(s) opened.")
 
@@ -1857,8 +2009,7 @@ class EmailerPage(tk.Frame):
     def _save_sender_name(self):
         name = self._sender_var.get().strip()
         if not name:
-            messagebox.showwarning("Empty Name",
-                "Please enter your name before saving.", parent=self)
+            messagebox.showwarning("Empty Name","Please enter your name before saving.", parent=self)
             return
         self.sender_name = name
         save_sender_name(name)
@@ -1902,19 +2053,15 @@ class EmailerPage(tk.Frame):
     def _clear_uploads(self):
         if not self.deal_items: return
         if not messagebox.askyesno("Clear All Uploads",
-            f"Remove all {len(self.deal_items)} loaded deal note(s) and start fresh?\n\nThis does NOT delete the files from disk."):
-            return
-        self.deal_items=[]
-        self.pdf_folder=""
-        self.sent_custodians.clear()
-        self.sent_clients.clear()
+            f"Remove all {len(self.deal_items)} loaded deal note(s) and start fresh?\n\n"
+            "This does NOT delete the files from disk."): return
+        self.deal_items=[]; self.pdf_folder=""
+        self.sent_custodians.clear(); self.sent_clients.clear()
         self.lbl_folder.config(text="No files loaded",fg="#8096B0")
-        self.lbl_found.config(text="")
-        self.lbl_file_list.config(text="")
+        self.lbl_found.config(text=""); self.lbl_file_list.config(text="")
         self.btn_clear.config(state="disabled")
         self._disable_send_buttons()
         for w in self.cust_body.winfo_children(): w.destroy()
-        self.btn_send_all_cust.config(state="disabled",text="Send ALL Custodian Emails")
         for w in self.client_body.winfo_children(): w.destroy()
         self.lbl_cust_hint.config(text="Load files above to begin.",fg="#607080")
         self.lbl_client_hint.config(text="Load files above to begin.",fg="#607080")
@@ -1934,8 +2081,7 @@ class EmailerPage(tk.Frame):
             client_from_pdf = parse_client_name_from_pdf(path)
             client = client_from_pdf if client_from_pdf else parse_client_name_from_filename(fname)
             items.append({
-                "fname":fname,"path":path,
-                "client":client,
+                "fname":fname,"path":path,"client":client,
                 "client_source": "pdf" if client_from_pdf else "filename",
                 "custodian":parse_custodian_from_pdf(path) or "UNKNOWN",
                 "deal_info":parse_deal_info_from_pdf(path),"sent":False,
@@ -1950,8 +2096,7 @@ class EmailerPage(tk.Frame):
             client_from_pdf = parse_client_name_from_pdf(path)
             client = client_from_pdf if client_from_pdf else parse_client_name_from_filename(fname)
             new_items.append({
-                "fname":fname,"path":path,
-                "client":client,
+                "fname":fname,"path":path,"client":client,
                 "client_source": "pdf" if client_from_pdf else "filename",
                 "custodian":parse_custodian_from_pdf(path) or "UNKNOWN",
                 "deal_info":parse_deal_info_from_pdf(path),"sent":False,
@@ -1964,37 +2109,29 @@ class EmailerPage(tk.Frame):
         self.after(0,self._render_client_tab)
         self.after(0,lambda:self.lbl_found.config(text=f"  {total} PDF(s) loaded"))
 
+
 # ════════════════════════════════════════════════════════════════════════════
 #  VOICE ENGINE
 # ════════════════════════════════════════════════════════════════════════════
-
 _tts_lock = threading.Lock()
 
 def speak(text: str):
-    """Speak text aloud in a background thread (non-blocking)."""
     if not _VOICE_READY or _tts is None:
         return
     def _run():
         with _tts_lock:
             try:
-                _tts.say(text)
-                _tts.runAndWait()
+                _tts.say(text); _tts.runAndWait()
             except Exception:
                 pass
     threading.Thread(target=_run, daemon=True).start()
 
 
 class VoiceBar(tk.Frame):
-    """
-    A compact mic bar that lives at the bottom of the sidebar.
-    Press the 🎤 button (or Ctrl+Space anywhere in the window) to start
-    listening.  The recognised text is shown and dispatched to a callback.
-    """
-
-    MIC_IDLE    = ("🎤  Hold to speak", FBC_MID,    WHITE)
-    MIC_LISTEN  = ("🔴  Listening…",    "#B71C1C",   WHITE)
-    MIC_THINK   = ("⏳  Processing…",   "#555555",   WHITE)
-    MIC_NODEPS  = ("🎤  Voice (install deps)", "#2A4A6A", SIDEBAR_TEXT)
+    MIC_IDLE   = ("🎤  Hold to speak", FBC_MID,   WHITE)
+    MIC_LISTEN = ("🔴  Listening…",   "#B71C1C",  WHITE)
+    MIC_THINK  = ("⏳  Processing…",  "#555555",  WHITE)
+    MIC_NODEPS = ("🎤  Voice (install deps)", "#2A4A6A", SIDEBAR_TEXT)
 
     def __init__(self, parent, dispatch_cb, hotkey_widget=None):
         super().__init__(parent, bg=SIDEBAR_BG)
@@ -2005,88 +2142,71 @@ class VoiceBar(tk.Frame):
             hotkey_widget.bind_all("<Control-space>", lambda e: self._toggle())
 
     def _build(self):
-        tk.Frame(self, bg=FBC_MID, height=1).pack(fill="x", padx=10, pady=(8, 4))
-
-        lbl = tk.Label(self, text="VOICE ASSISTANT", bg=SIDEBAR_BG,
-                       fg="#2A4A6A", font=("Segoe UI", 7, "bold"))
-        lbl.pack()
-
+        tk.Frame(self, bg=FBC_MID, height=1).pack(fill="x", padx=10, pady=(8,4))
+        tk.Label(self, text="VOICE ASSISTANT", bg=SIDEBAR_BG,
+                 fg="#2A4A6A", font=("Segoe UI",7,"bold")).pack()
         self.btn = tk.Button(
             self,
-            text=self.MIC_IDLE[0] if _VOICE_READY else self.MIC_NODEPS[0],
-            bg=self.MIC_IDLE[1]   if _VOICE_READY else self.MIC_NODEPS[1],
-            fg=self.MIC_IDLE[2]   if _VOICE_READY else self.MIC_NODEPS[2],
-            relief="flat", font=("Segoe UI", 9, "bold"),
+            text=self.MIC_IDLE[0]   if _VOICE_READY else self.MIC_NODEPS[0],
+            bg=self.MIC_IDLE[1]     if _VOICE_READY else self.MIC_NODEPS[1],
+            fg=self.MIC_IDLE[2]     if _VOICE_READY else self.MIC_NODEPS[2],
+            relief="flat", font=("Segoe UI",9,"bold"),
             cursor="hand2" if _VOICE_READY else "arrow",
             padx=6, pady=10, wraplength=170,
             command=self._toggle if _VOICE_READY else self._show_install,
         )
         self.btn.pack(fill="x", padx=10, pady=4)
-
         self.lbl_heard = tk.Label(self, text="", bg=SIDEBAR_BG, fg="#90CAF9",
-                                  font=("Segoe UI", 8), wraplength=170,
-                                  justify="left")
+                                  font=("Segoe UI",8), wraplength=170, justify="left")
         self.lbl_heard.pack(fill="x", padx=10)
+        tk.Label(self, text="Ctrl+Space to activate",
+                 bg=SIDEBAR_BG, fg="#2A4A6A", font=("Segoe UI",7)).pack(pady=(2,6))
 
-        hint = tk.Label(self, text="Ctrl+Space to activate",
-                        bg=SIDEBAR_BG, fg="#2A4A6A", font=("Segoe UI", 7))
-        hint.pack(pady=(2, 6))
-
-    def _set_state(self, state_tuple):
-        text, bg, fg = state_tuple
-        self.btn.config(text=text, bg=bg, fg=fg)
+    def _set_state(self, s):
+        self.btn.config(text=s[0], bg=s[1], fg=s[2])
 
     def _show_install(self):
-        messagebox.showinfo(
-            "Voice — Install Required",
+        messagebox.showinfo("Voice — Install Required",
             "To enable voice control, open a terminal and run:\n\n"
             "  pip install SpeechRecognition pyttsx3 pyaudio\n\n"
             "If pyaudio fails:\n"
             "  pip install pipwin\n"
             "  pipwin install pyaudio\n\n"
-            "Then restart FBC Suite.",
-        )
+            "Then restart FBC Suite.")
 
     def _toggle(self):
-        if self._active:
-            return
+        if self._active: return
         self._active = True
         self._set_state(self.MIC_LISTEN)
         threading.Thread(target=self._listen, daemon=True).start()
 
     def _listen(self):
-        r   = _sr.Recognizer()
-        mic = _sr.Microphone()
-        text = ""
+        r = _sr.Recognizer(); mic = _sr.Microphone(); text = ""
         try:
             with mic as source:
                 r.adjust_for_ambient_noise(source, duration=0.3)
                 audio = r.listen(source, timeout=6, phrase_time_limit=8)
             self.after(0, lambda: self._set_state(self.MIC_THINK))
             text = r.recognize_google(audio).lower().strip()
-        except _sr.WaitTimeoutError:
-            text = ""
-        except _sr.UnknownValueError:
-            text = ""
+        except _sr.WaitTimeoutError: text = ""
+        except _sr.UnknownValueError: text = ""
         except Exception as exc:
             text = ""
             self.after(0, lambda: self.lbl_heard.config(text=f"Error: {exc}"))
         finally:
             self._active = False
             self.after(0, lambda: self._set_state(self.MIC_IDLE))
-
         if text:
             self.after(0, lambda t=text: self._on_heard(t))
 
     def _on_heard(self, text: str):
         self.lbl_heard.config(text=f'"{text}"')
         self._cb(text)
-        # clear display after 6 s
         self.after(6000, lambda: self.lbl_heard.config(text=""))
 
 
 # ════════════════════════════════════════════════════════════════════════════
-#  MAIN APP SHELL  (sidebar + page switcher)
+#  MAIN APP SHELL
 # ════════════════════════════════════════════════════════════════════════════
 class App(tk.Tk):
     def __init__(self):
@@ -2101,298 +2221,157 @@ class App(tk.Tk):
         sidebar = tk.Frame(self, bg=SIDEBAR_BG, width=210)
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
-
         logo = tk.Frame(sidebar, bg=SIDEBAR_BG, pady=20)
         logo.pack(fill="x")
         tk.Label(logo, text="FBC", bg=FBC_ACCENT, fg=WHITE,
                  font=("Segoe UI",16,"bold"), padx=10, pady=6).pack()
         tk.Label(logo, text="Suite", bg=SIDEBAR_BG, fg=SIDEBAR_TEXT,
                  font=("Segoe UI",10)).pack(pady=(4,0))
-
         tk.Frame(sidebar, bg=FBC_MID, height=1).pack(fill="x", padx=16, pady=(0,10))
-
         self.nav_buttons = {}
-        nav_items = [
-            ("Converter", "converter"),
-            ("Deal Note\nEmailer", "emailer"),
-        ]
-        for label, key in nav_items:
-            btn = tk.Button(sidebar,
-                text=label,
+        for label, key in [("Converter","converter"),("Deal Note\nEmailer","emailer")]:
+            btn = tk.Button(sidebar, text=label,
                 command=lambda k=key: self._switch(k),
                 bg=SIDEBAR_BG, fg=SIDEBAR_TEXT,
                 activebackground=SIDEBAR_ACTIVE, activeforeground=WHITE,
                 font=("Segoe UI",10,"bold"), relief="flat",
-                cursor="hand2", pady=16, width=16,
-                justify="center")
+                cursor="hand2", pady=16, width=16, justify="center")
             btn.pack(fill="x", padx=8, pady=2)
-            btn.bind("<Enter>", lambda e, b=btn, k=key: b.config(
+            btn.bind("<Enter>", lambda e,b=btn,k=key: b.config(
                 bg=SIDEBAR_ACTIVE if self._active_page==k else SIDEBAR_HOVER))
-            btn.bind("<Leave>", lambda e, b=btn, k=key: b.config(
+            btn.bind("<Leave>", lambda e,b=btn,k=key: b.config(
                 bg=SIDEBAR_ACTIVE if self._active_page==k else SIDEBAR_BG))
             self.nav_buttons[key] = btn
-
-        # ── Voice bar (bottom of sidebar) ──────────────────────────────────
         self.voice_bar = VoiceBar(sidebar, self._voice_dispatch, hotkey_widget=self)
         self.voice_bar.pack(side="bottom", fill="x")
-
         tk.Label(sidebar, text=f"v{VERSION}", bg=SIDEBAR_BG, fg="#2A4A6A",
                  font=("Segoe UI",8)).pack(side="bottom", pady=4)
-
         self.content = tk.Frame(self, bg=BG)
         self.content.pack(side="left", fill="both", expand=True)
-
         self.pages = {
             "converter": SarestockPage(self.content),
             "emailer":   EmailerPage(self.content),
         }
-
         self._switch("converter")
 
-    # ── Central voice command dispatcher ───────────────────────────────────
     def _voice_dispatch(self, text: str):
-        """
-        Map spoken text to app actions.
-        Commands are intentionally broad so minor mis-recognitions still work.
-        """
         t = text.lower()
-
-        # ── Navigation ─────────────────────────────────────────────────────
-        if any(w in t for w in ("converter", "convert", "sarestock", "first tab")):
-            self._switch("converter")
-            speak("Switched to Converter.")
-            return
-
-        if any(w in t for w in ("email", "emailer", "deal note", "second tab")):
-            self._switch("emailer")
-            speak("Switched to Deal Note Emailer.")
-            return
-
-        # ── Converter page commands ─────────────────────────────────────────
+        if any(w in t for w in ("converter","convert","sarestock","first tab")):
+            self._switch("converter"); speak("Switched to Converter."); return
+        if any(w in t for w in ("email","emailer","deal note","second tab")):
+            self._switch("emailer"); speak("Switched to Deal Note Emailer."); return
         conv = self.pages["converter"]
-
-        if any(w in t for w in ("browse", "upload file", "load file", "open file",
-                                "first exchange", "pick file")):
+        if any(w in t for w in ("browse","upload file","load file","open file","first exchange","pick file")):
+            self._switch("converter"); speak("Opening file browser."); conv._pick_file(); return
+        if any(w in t for w in ("second exchange","second file","upload second","load second","vfex file","pick second")):
+            self._switch("converter"); speak("Opening second file browser."); conv._pick_file2(); return
+        if any(w in t for w in ("download csv","save csv","get csv")):
             self._switch("converter")
-            speak("Opening file browser.")
-            conv._pick_file()
+            if conv.conv_rows: speak("Downloading CSV."); conv._dl_csv()
+            elif conv.conv_rows2: speak("Downloading second CSV."); conv._dl_csv2()
+            else: speak("No file loaded yet.")
             return
-
-        if any(w in t for w in ("second exchange", "second file", "upload second",
-                                "load second", "vfex file", "pick second")):
+        if any(w in t for w in ("download pdf","save pdf","get pdf")):
             self._switch("converter")
-            speak("Opening second file browser.")
-            conv._pick_file2()
+            if conv.conv_rows: speak("Downloading PDF."); conv._dl_pdf()
+            elif conv.conv_rows2: speak("Downloading second PDF."); conv._dl_pdf2()
+            else: speak("No file loaded yet.")
             return
-
-        if any(w in t for w in ("download csv", "save csv", "get csv")):
-            self._switch("converter")
-            if conv.conv_rows:
-                speak("Downloading CSV.")
-                conv._dl_csv()
-            elif conv.conv_rows2:
-                speak("Downloading second CSV.")
-                conv._dl_csv2()
-            else:
-                speak("No file loaded yet.")
-            return
-
-        if any(w in t for w in ("download pdf", "save pdf", "get pdf")):
-            self._switch("converter")
-            if conv.conv_rows:
-                speak("Downloading PDF.")
-                conv._dl_pdf()
-            elif conv.conv_rows2:
-                speak("Downloading second PDF.")
-                conv._dl_pdf2()
-            else:
-                speak("No file loaded yet.")
-            return
-
-        if any(w in t for w in ("send zse", "send z s e", "zse email")):
-            self._switch("converter")
-            speak("Opening ZSE email.")
-            conv._send_email()
-            return
-
-        if any(w in t for w in ("send vfex", "vfex email")):
-            self._switch("converter")
-            speak("Opening VFEX email.")
-            conv._send_email2()
-            return
-
-        if any(w in t for w in ("send both", "both emails", "zse and vfex",
-                                "send everything converter")):
-            self._switch("converter")
-            speak("Opening combined email.")
-            conv._send_email_both()
-            return
-
-        if any(w in t for w in ("reset counter", "reset ticket", "reset")):
-            self._switch("converter")
-            speak("Counter reset.")
-            conv._reset()
-            return
-
-        if any(w in t for w in ("clear converter", "clear uploads converter")):
-            self._switch("converter")
-            speak("Clearing converter uploads.")
-            conv._clear_uploads()
-            return
-
-        # ── Emailer page commands ────────────────────────────────────────────
+        if any(w in t for w in ("send zse","send z s e","zse email")):
+            self._switch("converter"); speak("Opening ZSE email."); conv._send_email(); return
+        if any(w in t for w in ("send vfex","vfex email")):
+            self._switch("converter"); speak("Opening VFEX email."); conv._send_email2(); return
+        if any(w in t for w in ("send both","both emails","zse and vfex","send everything converter")):
+            self._switch("converter"); speak("Opening combined email."); conv._send_email_both(); return
+        if any(w in t for w in ("reset counter","reset ticket","reset")):
+            self._switch("converter"); speak("Counter reset."); conv._reset(); return
+        if any(w in t for w in ("clear converter","clear uploads converter")):
+            self._switch("converter"); speak("Clearing converter uploads."); conv._clear_uploads(); return
         em = self.pages["emailer"]
-
-        if any(w in t for w in ("load folder", "pick folder", "open folder",
-                                "select folder", "load pdfs", "browse folder")):
-            self._switch("emailer")
-            speak("Opening folder browser.")
-            em._pick_folder()
-            return
-
-        if any(w in t for w in ("load files", "pick files", "individual files",
-                                "select files", "browse files")):
-            self._switch("emailer")
-            speak("Opening file picker.")
-            em._pick_individual_files()
-            return
-
-        if any(w in t for w in ("send all custodian", "custodian emails",
-                                "send custodians", "all custodians")):
-            self._switch("emailer")
-            speak("Sending all custodian emails.")
-            em._cust_send_all()
-            return
-
-        if any(w in t for w in ("send all client", "client emails",
-                                "send clients", "all clients")):
-            self._switch("emailer")
-            speak("Sending all client emails.")
-            em._client_send_all()
-            return
-
-        if any(w in t for w in ("send everything", "send all emails",
-                                "send all", "everything")):
-            self._switch("emailer")
-            speak("Sending everything.")
-            em._send_everything()
-            return
-
-        if any(w in t for w in ("manage contacts", "contacts", "open contacts")):
-            self._switch("emailer")
-            speak("Opening contacts.")
-            em._open_contacts()
-            return
-
-        if any(w in t for w in ("clear emailer", "clear deal", "clear files emailer")):
-            self._switch("emailer")
-            speak("Clearing loaded files.")
-            em._clear_uploads()
-            return
-
-        # ── Status / help ────────────────────────────────────────────────────
-        if any(w in t for w in ("help", "commands", "what can you do",
-                                "what can i say")):
-            speak(
-                "You can say: switch to converter, switch to emailer, "
-                "browse file, download CSV, download PDF, send ZSE, send VFEX, "
-                "send both, load folder, send all custodians, send all clients, "
-                "send everything, manage contacts, or reset counter."
-            )
-            _VoiceHelpDialog(self)
-            return
-
-        if any(w in t for w in ("status", "how many", "how many files",
-                                "what's loaded")):
-            em = self.pages["emailer"]
-            conv = self.pages["converter"]
+        if any(w in t for w in ("load folder","pick folder","open folder","select folder","load pdfs","browse folder")):
+            self._switch("emailer"); speak("Opening folder browser."); em._pick_folder(); return
+        if any(w in t for w in ("load files","pick files","individual files","select files","browse files")):
+            self._switch("emailer"); speak("Opening file picker."); em._pick_individual_files(); return
+        if any(w in t for w in ("send all custodian","custodian emails","send custodians","all custodians")):
+            self._switch("emailer"); speak("Sending all custodian emails."); em._cust_send_all(); return
+        if any(w in t for w in ("send all client","client emails","send clients","all clients")):
+            self._switch("emailer"); speak("Sending all client emails."); em._client_send_all(); return
+        if any(w in t for w in ("send everything","send all emails","send all","everything")):
+            self._switch("emailer"); speak("Sending everything."); em._send_everything(); return
+        if any(w in t for w in ("manage contacts","contacts","open contacts")):
+            self._switch("emailer"); speak("Opening contacts."); em._open_contacts(); return
+        if any(w in t for w in ("clear emailer","clear deal","clear files emailer")):
+            self._switch("emailer"); speak("Clearing loaded files."); em._clear_uploads(); return
+        if any(w in t for w in ("help","commands","what can you do","what can i say")):
+            speak("You can say: switch to converter, switch to emailer, browse file, download CSV, "
+                  "download PDF, send ZSE, send VFEX, send both, load folder, send all custodians, "
+                  "send all clients, send everything, manage contacts, or reset counter.")
+            _VoiceHelpDialog(self); return
+        if any(w in t for w in ("status","how many","how many files","what's loaded")):
             parts = []
-            if conv.conv_rows:
-                parts.append(f"{len(conv.conv_rows)} rows in first exchange")
-            if conv.conv_rows2:
-                parts.append(f"{len(conv.conv_rows2)} rows in second exchange")
-            if em.deal_items:
-                parts.append(f"{len(em.deal_items)} deal notes loaded")
-            msg = (", ".join(parts) + ".") if parts else "Nothing loaded yet."
-            speak(msg)
-            return
-
-        # ── Not understood ───────────────────────────────────────────────────
+            if conv.conv_rows: parts.append(f"{len(conv.conv_rows)} rows in first exchange")
+            if conv.conv_rows2: parts.append(f"{len(conv.conv_rows2)} rows in second exchange")
+            if em.deal_items: parts.append(f"{len(em.deal_items)} deal notes loaded")
+            speak((", ".join(parts)+".") if parts else "Nothing loaded yet."); return
         speak("Sorry, I didn't catch that. Say 'help' for a list of commands.")
 
     def _switch(self, key):
-        for page in self.pages.values():
-            page.pack_forget()
+        for page in self.pages.values(): page.pack_forget()
         self.pages[key].pack(fill="both", expand=True)
         self._active_page = key
         for k, btn in self.nav_buttons.items():
-            if k == key:
-                btn.config(bg=SIDEBAR_ACTIVE, fg=WHITE)
-            else:
-                btn.config(bg=SIDEBAR_BG, fg=SIDEBAR_TEXT)
+            btn.config(bg=SIDEBAR_ACTIVE if k==key else SIDEBAR_BG,
+                       fg=WHITE         if k==key else SIDEBAR_TEXT)
 
 
 class _VoiceHelpDialog(tk.Toplevel):
-    """Quick-reference popup showing all voice commands."""
     COMMANDS = [
-        ("Navigation",      ["switch to converter",  "switch to emailer"]),
-        ("Converter",       ["browse file / second file",
-                             "download CSV / PDF",
-                             "send ZSE / send VFEX / send both",
-                             "reset counter",  "clear converter"]),
-        ("Deal Note Emailer", ["load folder / load files",
-                               "send all custodians",
-                               "send all clients",
-                               "send everything",
-                               "manage contacts",
-                               "clear emailer"]),
-        ("General",         ["status — how many files loaded",
-                             "help — show this dialog",
-                             "Ctrl+Space — activate mic anywhere"]),
+        ("Navigation",        ["switch to converter", "switch to emailer"]),
+        ("Converter",         ["browse file / second file","download CSV / PDF",
+                               "send ZSE / send VFEX / send both",
+                               "reset counter","clear converter"]),
+        ("Deal Note Emailer", ["load folder / load files","send all custodians",
+                               "send all clients","send everything",
+                               "manage contacts","clear emailer"]),
+        ("General",           ["status — how many files loaded",
+                               "help — show this dialog",
+                               "Ctrl+Space — activate mic anywhere"]),
     ]
-
     def __init__(self, parent):
         super().__init__(parent)
         self.title("Voice Commands — FBC Suite")
         self.configure(bg=SIDEBAR_BG)
         self.resizable(False, False)
         self.grab_set()
-
         tk.Label(self, text="🎤  Voice Commands", bg=FBC_ACCENT, fg=WHITE,
-                 font=("Segoe UI", 12, "bold"), pady=10).pack(fill="x")
-
+                 font=("Segoe UI",12,"bold"), pady=10).pack(fill="x")
         body = tk.Frame(self, bg=SIDEBAR_BG, padx=20, pady=14)
         body.pack(fill="both", expand=True)
-
         for section, cmds in self.COMMANDS:
             tk.Label(body, text=section.upper(), bg=SIDEBAR_BG, fg=FBC_ACCENT,
-                     font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(8, 2))
+                     font=("Segoe UI",8,"bold")).pack(anchor="w", pady=(8,2))
             for c in cmds:
                 tk.Label(body, text=f"  • {c}", bg=SIDEBAR_BG, fg=SIDEBAR_TEXT,
-                         font=("Segoe UI", 9)).pack(anchor="w")
-
+                         font=("Segoe UI",9)).pack(anchor="w")
         tk.Button(self, text="Close", command=self.destroy,
                   bg=FBC_MID, fg=WHITE, relief="flat",
-                  font=("Segoe UI", 10, "bold"), pady=8, cursor="hand2").pack(
+                  font=("Segoe UI",10,"bold"), pady=8, cursor="hand2").pack(
                       fill="x", padx=20, pady=14)
-
         self.update_idletasks()
         w, h = 360, self.winfo_reqheight()
         x = parent.winfo_x() + (parent.winfo_width()  - w) // 2
         y = parent.winfo_y() + (parent.winfo_height() - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
 
+
 # ════════════════════════════════════════════════════════════════════════════
 #  ENTRY POINT
 # ════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     check_and_apply_update()
-
     login = LoginDialog()
     login.mainloop()
-
     if not login.authenticated:
         sys.exit(0)
-
     app = App()
     app.mainloop()
