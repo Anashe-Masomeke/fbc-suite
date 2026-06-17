@@ -16,7 +16,7 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 import sys, os, subprocess, urllib.request
 
-VERSION       = 25
+VERSION       = 26
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
@@ -475,7 +475,6 @@ class RecipientsDialog(tk.Toplevel):
 # ════════════════════════════════════════════════════════════════════════════
 #  ── SARESTOCK LOGIC ────────────────────────────────────────────────────────
 # ════════════════════════════════════════════════════════════════════════════
-STATE_FILE = os.path.join(os.path.expanduser("~"), ".fbc_ticket_state.json")
 
 EO_HEADERS = [
     "Exchange","Market","Symbol","Buy/Sell","Participant","Custodian","Client",
@@ -500,31 +499,6 @@ FIELD_MAP = [
     ("ZSE = FBCSZWHX","Participant (fixed)"),("…-02 → …-0002","Client (zero-pad)"),
     ("DD/MM/YYYY …","Date/Time (auto)"),
 ]
-
-def _today_prefix():
-    d = datetime.now(); return f"{d.year}{d.month:02d}{d.day:02d}"
-
-def _load_state():
-    try:
-        with open(STATE_FILE) as f: return json.load(f)
-    except Exception: return {"date":"","seq":0}
-
-def _save_state(s):
-    with open(STATE_FILE,"w") as f: json.dump(s,f)
-
-def peek_next():
-    s=_load_state(); t=_today_prefix()
-    return f"{t}{(s['seq'] if s['date']==t else 0)+1:03d}"
-
-def allocate_tickets(count):
-    s=_load_state(); t=_today_prefix()
-    if s["date"]!=t: s["seq"]=0; s["date"]=t
-    tickets=[]
-    for _ in range(count):
-        s["seq"]+=1; tickets.append(f"{t}{s['seq']:03d}")
-    _save_state(s); return tickets
-
-def reset_counter(): _save_state({"date":"","seq":0})
 
 def get_exchange(market):
     u=(market or "").strip().upper(); return "VFEX" if u=="VFX" else (u or "ZSE")
@@ -552,22 +526,25 @@ def stamp():
     d=datetime.now(); return f"{d.day}_{d.month}_{d.year}"
 
 def transform_rows(raw_rows):
-    now=get_now(); tickets=allocate_tickets(len(raw_rows)); out=[]
-    for i,r in enumerate(raw_rows):
-        exch=get_exchange(r.get("Market","")); sym=r.get("Security","")
+    now = get_now()
+    out = []
+    for r in raw_rows:
+        exch = get_exchange(r.get("Market", ""))
+        sym  = r.get("Security", "")
         out.append({
-            "Exchange":exch,"Market":get_market(sym,exch),"Symbol":sym,
-            "Buy/Sell":r.get("Buy/Sell",""),"Participant":get_participant(exch),
-            "Custodian":r.get("SCA Code",""),"Client":pad_client(r.get("CSD Account","")),
-            "Trader":r.get("Trader",""),"Short Sell":"NO",
-            "Price":r.get("Yield",""),"Volume":r.get("Quantity",""),
-            "Yield %":"0","Accrued Interest":"0","Order No.":"",
-            "Ticket No.":r.get("Match Reference"),
-            "Type":"Limit","Filled Volume":r.get("Quantity",""),
-            "Remaining Volume":"0","Disc. Volume":"0","Trigger Price":"0",
-            "Order Initiator":r.get("Trader",""),"Pricing Mechanism":""
+            "Exchange": exch, "Market": get_market(sym, exch), "Symbol": sym,
+            "Buy/Sell": r.get("Buy/Sell", ""), "Participant": get_participant(exch),
+            "Custodian": r.get("SCA Code", ""), "Client": pad_client(r.get("CSD Account", "")),
+            "Trader": r.get("Trader", ""), "Short Sell": "NO",
+            "Price": r.get("Yield", ""), "Volume": r.get("Quantity", ""),
+            "Yield %": "0", "Accrued Interest": "0", "Order No.": r.get("Trade Leg", "").lstrip("0") or "0",
+            "Ticket No.": r.get("Match Reference", "").lstrip("0") or "0",
+            "Date/Time": now, "Execution Date/Time": now,
+            "Type": "Limit", "Filled Volume": r.get("Quantity", ""),
+            "Remaining Volume": "0", "Disc. Volume": "0", "Trigger Price": "0",
+            "Order Initiator": r.get("Trader", ""), "Pricing Mechanism": ""
         })
-    return out,now,tickets
+    return out, now
 
 def generate_csv(rows, out_dir, label):
     label = label.upper()
@@ -854,7 +831,14 @@ def _names_match(a, b):
     ta, tb = _name_tokens(a), _name_tokens(b)
     if not ta or not tb:
         return False
-    return ta == tb or ta.issubset(tb) or tb.issubset(ta)
+    # Exact or subset match — covers reversed order AND extra tokens like ", PADE"
+    if ta == tb or ta.issubset(tb) or tb.issubset(ta):
+        return True
+    core_a = {t for t in ta if len(t) > 3}
+    core_b = {t for t in tb if len(t) > 3}
+    if core_a and core_b and (core_a.issubset(tb) or core_b.issubset(ta) or core_a == core_b):
+        return True
+    return False
 
 def find_contact(contacts, client_name):
     if client_name in contacts:
@@ -896,6 +880,9 @@ def parse_client_name_from_filename(fname):
     base = re.sub(r'\s*_\d{6,}\s*$', '', base)
     base = re.sub(r',\s*[\d,]+\s+[A-Z]{2,6}\.?\s*$', '', base)
     base = re.sub(r'\s+\d{6,}\s*$', '', base)
+    # ADD THIS: strip anything after a comma (address suffixes like ", PADE 123")
+    if ',' in base:
+        base = base.split(',')[0].strip()
     return base.strip().upper()
 
 def parse_client_name_from_pdf(pdf_path):
@@ -939,7 +926,6 @@ def parse_client_name_from_pdf(pdf_path):
     except Exception:
         pass
     return None
-
 def parse_custodian_from_pdf(pdf_path):
     try:
         import fitz
@@ -1222,13 +1208,6 @@ class SarestockPage(tk.Frame):
         info=tk.Frame(self,bg=FBC_MID,padx=16,pady=8); info.pack(fill="x")
         tk.Label(info,text="📊  Sarestock Upload Converter",bg=FBC_MID,fg=WHITE,
                  font=("Segoe UI",11,"bold")).pack(side="left")
-        right=tk.Frame(info,bg=FBC_MID); right.pack(side="right")
-        self.lbl_ticket=tk.Label(right,text="Next ticket: ...",bg=FBC_MID,fg="#D0EAFF",
-                                  font=("Consolas",10)); self.lbl_ticket.pack(side="right",padx=(10,0))
-        tk.Button(right,text="Reset Counter",command=self._reset,
-                  bg=FBC_DARK,fg="#90CAF9",relief="flat",font=("Segoe UI",9),
-                  cursor="hand2",padx=8,pady=3).pack(side="right")
-
         self.paned=tk.PanedWindow(self,orient="horizontal",bg=SEP_CLR,sashwidth=4,sashrelief="flat")
         self.paned.pack(fill="both",expand=True)
         self.left_frame,self.left_canvas,self.left_body=self._scroll_pane(self.paned)
@@ -1239,7 +1218,6 @@ class SarestockPage(tk.Frame):
         self._build_bottom_bar()
         self._build_left_column()
         self._build_right_column()
-        self._refresh_ticket()
 
     def _scroll_pane(self,parent):
         frame=tk.Frame(parent,bg=BG)
@@ -1355,7 +1333,6 @@ class SarestockPage(tk.Frame):
             b.config(state="disabled")
         self.btn_email.config(text="Send — ZSE Only")
         self.btn_email2.config(text="Send — VFEX Only")
-        self._refresh_ticket()
         messagebox.showinfo("Cleared", "Both upload slots cleared. Ready for a new upload.")
 
     def _build_left_column(self):
@@ -1443,7 +1420,6 @@ class SarestockPage(tk.Frame):
         body=tk.Frame(outer,bg=CARD_BG,padx=14,pady=10,highlightbackground=SEP_CLR,highlightthickness=1)
         body.pack(fill="x"); setattr(self,body_attr,body)
 
-    def _refresh_ticket(self): self.lbl_ticket.config(text=f"Next ticket:  {peek_next()}")
 
     def _build_preview(self,body_attr,label_attr,rows,tickets,now):
         body=getattr(self,body_attr); lbl=getattr(self,label_attr)
@@ -1491,7 +1467,8 @@ class SarestockPage(tk.Frame):
             df=pd.read_csv(path,dtype=str).fillna("") if path.lower().endswith(".csv") else pd.read_excel(path,dtype=str).fillna("")
             self.raw_headers=list(df.columns); self.raw_rows=df.to_dict("records")
             if not self.raw_rows: raise ValueError("File is empty.")
-            self.source_path=path; self.conv_rows,now,tickets=transform_rows(self.raw_rows)
+            self.source_path=path; self.conv_rows, now = transform_rows(self.raw_rows)
+            tickets = [r.get("Ticket No.", "").lstrip("0") or "0" for r in self.conv_rows]
             self.gen_csv=self.gen_pdf=self.gen_mt_xlsx=None
             self.lbl_csv_done.config(text=""); self.lbl_pdf_done.config(text="")
             self.btn_csv.config(text="Download CSV",bg=FBC_MID)
@@ -1508,7 +1485,6 @@ class SarestockPage(tk.Frame):
             self.prev_outer1.pack(fill="x",padx=12,pady=(4,0))
             self._build_preview("prev_body1","lbl_showing1",self.conv_rows,tickets,now)
             if self.source_path2: self.btn_email_both.config(state="normal")
-            self._refresh_ticket()
         except Exception as e: messagebox.showerror("Error loading file",str(e))
 
     def _dl_csv(self):
@@ -1551,7 +1527,8 @@ class SarestockPage(tk.Frame):
             df=pd.read_csv(path,dtype=str).fillna("") if path.lower().endswith(".csv") else pd.read_excel(path,dtype=str).fillna("")
             self.raw_headers2=list(df.columns); self.raw_rows2=df.to_dict("records")
             if not self.raw_rows2: raise ValueError("File is empty.")
-            self.source_path2=path; self.conv_rows2,now,tickets=transform_rows(self.raw_rows2)
+            self.source_path2=path; self.conv_rows2, now = transform_rows(self.raw_rows2)
+            tickets = [r.get("Ticket No.", "").lstrip("0") or "0" for r in self.conv_rows2]
             self.gen_csv2=self.gen_pdf2=self.gen_mt_xlsx2=None
             self.lbl_csv2_done.config(text=""); self.lbl_pdf2_done.config(text="")
             self.btn_csv2.config(text="Download CSV",bg=FBC_MID)
@@ -1568,7 +1545,6 @@ class SarestockPage(tk.Frame):
             self.prev_outer2.pack(fill="x",padx=12,pady=(4,0))
             self._build_preview("prev_body2","lbl_showing2",self.conv_rows2,tickets,now)
             if self.source_path: self.btn_email_both.config(state="normal")
-            self._refresh_ticket()
         except Exception as e: messagebox.showerror("Error loading 2nd file",str(e))
 
     def _dl_csv2(self):
@@ -1611,14 +1587,6 @@ class SarestockPage(tk.Frame):
     def _pick_outdir(self):
         d=filedialog.askdirectory(title="Choose output folder",initialdir=self.out_dir)
         if d: self.out_dir=d; self.lbl_outdir.config(text=d)
-
-    def _reset(self):
-        if messagebox.askyesno("Reset Counter","Reset ticket counter?\n\nOnly do this if Sarestock has also been reset."):
-            reset_counter()
-            self._clear_uploads()
-            self._refresh_ticket()
-
-
 # ════════════════════════════════════════════════════════════════════════════
 #  EMAILER PAGE
 # ════════════════════════════════════════════════════════════════════════════
@@ -1888,22 +1856,42 @@ class EmailerPage(tk.Frame):
         )
 
     def _client_groups(self):
-        groups={}
+        groups = {}
         for item in self.deal_items:
-            contact = find_contact(self.contacts, item["client"])
-            email   = contact.get("email", "")
-            key = item["client"]
+            client_raw = item["client"]
+
+            # ── Find canonical key: check contacts first ──────────────────────
+            key = None
             for saved in self.contacts:
-                if _names_match(item["client"], saved):
-                    key = saved; break
-            if key == item["client"]:
+                if _names_match(client_raw, saved):
+                    key = saved
+                    break
+            if key is None:
                 for saved in self.contacts:
-                    if item["client"].startswith(saved) or saved.startswith(item["client"]):
-                        key = saved; break
+                    if client_raw.startswith(saved) or saved.startswith(client_raw):
+                        key = saved
+                        break
+
+            # ── If not in contacts, normalize by sorting tokens so
+            #    "EDWARD MTEWEYI" and "MTEWEYI EDWARD" map to the same key ─────
+            if key is None:
+                # Check if an existing group key matches by token set
+                for existing_key in groups:
+                    if _names_match(client_raw, existing_key):
+                        key = existing_key
+                        break
+
+            if key is None:
+                key = client_raw  # new unique client
+
+            contact = find_contact(self.contacts, key)
+            email = contact.get("email", "")
+
             if key not in groups:
                 groups[key] = {"email": email, "items": [], "sent": False}
             groups[key]["items"].append(item)
             groups[key]["email"] = groups[key]["email"] or email
+
         for g in groups.values():
             g["status"] = "ready" if g["email"] else "missing"
         return groups
@@ -2283,8 +2271,6 @@ class App(tk.Tk):
             self._switch("converter"); speak("Opening VFEX email."); conv._send_email2(); return
         if any(w in t for w in ("send both","both emails","zse and vfex","send everything converter")):
             self._switch("converter"); speak("Opening combined email."); conv._send_email_both(); return
-        if any(w in t for w in ("reset counter","reset ticket","reset")):
-            self._switch("converter"); speak("Counter reset."); conv._reset(); return
         if any(w in t for w in ("clear converter","clear uploads converter")):
             self._switch("converter"); speak("Clearing converter uploads."); conv._clear_uploads(); return
         em = self.pages["emailer"]
