@@ -16,7 +16,7 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 import sys, os, subprocess, urllib.request
 
-VERSION       = 26
+VERSION       = 27
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
@@ -37,16 +37,6 @@ def check_and_apply_update():
     rv = _remote_ver()
     if rv <= VERSION:
         return
-    import tkinter as tk
-    from tkinter import messagebox
-    root = tk.Tk(); root.withdraw()
-    ok = messagebox.askyesno(
-        "FBC Suite — Update Available",
-        f"New version available  (v{rv}).\nYour version: v{VERSION}\n\nDownload and install now?",
-        icon="info")
-    root.destroy()
-    if not ok:
-        return
 
     current_exe = os.path.abspath(sys.argv[0])
     exe_dir     = os.path.dirname(current_exe)
@@ -54,12 +44,23 @@ def check_and_apply_update():
     new_exe_path = os.path.join(exe_dir, f"fbc-suite-v{rv}.exe")
     bat_path     = os.path.join(exe_dir, "_fbc_updater.bat")
 
-    root2 = tk.Tk(); root2.withdraw()
-    messagebox.showinfo("Downloading Update",
-        f"Downloading FBC Suite v{rv} — please wait.\n\n"
-        "The new version will open automatically when done.",
-        parent=root2)
-    root2.destroy()
+    import tkinter as tk
+    from tkinter import messagebox
+
+    # Tiny non-blocking splash so the app doesn't look frozen during download.
+    splash = tk.Tk()
+    splash.title("FBC Suite")
+    splash.resizable(False, False)
+    splash.configure(bg=SIDEBAR_BG)
+    w, h = 320, 110
+    x = (splash.winfo_screenwidth()  - w) // 2
+    y = (splash.winfo_screenheight() - h) // 2
+    splash.geometry(f"{w}x{h}+{x}+{y}")
+    tk.Label(splash, text="Updating FBC Suite…", bg=SIDEBAR_BG, fg=WHITE,
+             font=("Segoe UI", 11, "bold")).pack(pady=(22, 6))
+    tk.Label(splash, text=f"v{VERSION}  →  v{rv}", bg=SIDEBAR_BG, fg="#90CAF9",
+             font=("Segoe UI", 9)).pack()
+    splash.update()
 
     try:
         MIN_SIZE = 20 * 1024 * 1024
@@ -70,13 +71,12 @@ def check_and_apply_update():
                     if not chunk:
                         break
                     f.write(chunk)
+                    splash.update()
 
         size = os.path.getsize(new_exe_path)
         if size < MIN_SIZE:
             os.remove(new_exe_path)
-            raise Exception(
-                f"Download incomplete ({size // 1024} KB).\n"
-                "Please check your internet and try again.")
+            raise Exception(f"Download incomplete ({size // 1024} KB).")
 
         bat_lines = [
             "@echo off",
@@ -93,19 +93,17 @@ def check_and_apply_update():
             creationflags=subprocess.CREATE_NO_WINDOW,
             close_fds=True
         )
+        splash.destroy()
         sys.exit(0)
 
     except Exception as e:
+        splash.destroy()
         for fp in [new_exe_path, bat_path]:
             try: os.remove(fp)
             except Exception: pass
-        root3 = tk.Tk(); root3.withdraw()
-        messagebox.showerror("Update Failed",
-            f"Could not update:\n\n{e}\n\n"
-            "Please download manually from:\n"
-            f"github.com/{GITHUB_USER}/{GITHUB_REPO}/releases/latest")
-        root3.destroy()
-
+        # Silent failure — don't block the user, just continue on the old version.
+        # Update will be retried automatically next time the app opens.
+        print(f"[Auto-update] Failed silently, continuing on v{VERSION}: {e}")
 
 # ════════════════════════════════════════════════════════════════════════════
 #  IMPORTS
@@ -574,7 +572,30 @@ def generate_matched_excel(source_path, raw_rows, out_dir):
             f"Could not copy '{os.path.basename(source_path)}' — "
             "please close it in Excel and try again.")
     return dest
+ANESU_COLUMNS = ["Market", "CSD Account", "SCA Code", "Name",
+                  "Security", "Buy/Sell", "Quantity", "Yield"]
 
+def generate_anesu_excel(raw_rows, out_dir):
+    """Trimmed excel — raw columns only, no transformation. Font: Aptos Narrow."""
+    _require("pandas")
+    import pandas as pd
+    from openpyxl.styles import Font
+    exch_raw = (raw_rows[0].get("Market", "") or "").strip().upper() if raw_rows else ""
+    label = "VFEX" if exch_raw in ("VFX", "VFEX") else "ZSE"
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = os.path.join(out_dir, f"CONFIRMATION TEMPLATE, {label}_{ts}.xlsx")
+    trimmed = [{col: r.get(col, "") for col in ANESU_COLUMNS} for r in raw_rows]
+    df = pd.DataFrame(trimmed, columns=ANESU_COLUMNS)
+    df.to_excel(path, index=False)
+
+    wb = _require("openpyxl").load_workbook(path)
+    ws = wb.active
+    font = Font(name="Aptos Narrow", size=11)
+    for row in ws.iter_rows():
+        for cell in row:
+            cell.font = font
+    wb.save(path)
+    return path
 def generate_pdf(raw_rows, raw_headers, out_dir):
     _require("fpdf", "fpdf2")
     from fpdf import FPDF
@@ -831,12 +852,7 @@ def _names_match(a, b):
     ta, tb = _name_tokens(a), _name_tokens(b)
     if not ta or not tb:
         return False
-    # Exact or subset match — covers reversed order AND extra tokens like ", PADE"
     if ta == tb or ta.issubset(tb) or tb.issubset(ta):
-        return True
-    core_a = {t for t in ta if len(t) > 3}
-    core_b = {t for t in tb if len(t) > 3}
-    if core_a and core_b and (core_a.issubset(tb) or core_b.issubset(ta) or core_a == core_b):
         return True
     return False
 
@@ -1197,10 +1213,16 @@ class ContactsDialog(tk.Toplevel):
 class SarestockPage(tk.Frame):
     def __init__(self,parent):
         super().__init__(parent,bg=BG)
-        self.raw_rows=[]; self.raw_headers=[]; self.conv_rows=[]
-        self.source_path=None; self.gen_csv=self.gen_pdf=self.gen_mt_xlsx=None
-        self.raw_rows2=[]; self.raw_headers2=[]; self.conv_rows2=[]
-        self.source_path2=None; self.gen_csv2=self.gen_pdf2=self.gen_mt_xlsx2=None
+        self.raw_rows = [];
+        self.raw_headers = [];
+        self.conv_rows = []
+        self.source_path = None;
+        self.gen_csv = self.gen_pdf = self.gen_mt_xlsx = self.gen_anesu_xlsx = None
+        self.raw_rows2 = [];
+        self.raw_headers2 = [];
+        self.conv_rows2 = []
+        self.source_path2 = None;
+        self.gen_csv2 = self.gen_pdf2 = self.gen_mt_xlsx2 = self.gen_anesu_xlsx2 = None
         self.out_dir=os.path.join(os.path.expanduser("~"),"Downloads")
         self._build()
 
@@ -1313,10 +1335,12 @@ class SarestockPage(tk.Frame):
             return
         self.raw_rows=[]; self.raw_headers=[]; self.conv_rows=[]
         self.source_path=None
-        self.gen_csv=self.gen_pdf=self.gen_mt_xlsx=None
-        self.raw_rows2=[]; self.raw_headers2=[]; self.conv_rows2=[]
-        self.source_path2=None
-        self.gen_csv2=self.gen_pdf2=self.gen_mt_xlsx2=None
+        self.gen_csv = self.gen_pdf = self.gen_mt_xlsx = self.gen_anesu_xlsx = None
+        self.raw_rows2 = [];
+        self.raw_headers2 = [];
+        self.conv_rows2 = []
+        self.source_path2 = None
+        self.gen_csv2 = self.gen_pdf2 = self.gen_mt_xlsx2 = self.gen_anesu_xlsx2 = None
         self.prev_outer1.pack_forget()
         self.prev_outer2.pack_forget()
         for w in self.info_bar1.winfo_children(): w.pack_forget()
@@ -1467,9 +1491,10 @@ class SarestockPage(tk.Frame):
             df=pd.read_csv(path,dtype=str).fillna("") if path.lower().endswith(".csv") else pd.read_excel(path,dtype=str).fillna("")
             self.raw_headers=list(df.columns); self.raw_rows=df.to_dict("records")
             if not self.raw_rows: raise ValueError("File is empty.")
-            self.source_path=path; self.conv_rows, now = transform_rows(self.raw_rows)
+            self.source_path = path;
+            self.conv_rows, now = transform_rows(self.raw_rows)
             tickets = [r.get("Ticket No.", "").lstrip("0") or "0" for r in self.conv_rows]
-            self.gen_csv=self.gen_pdf=self.gen_mt_xlsx=None
+            self.gen_csv = self.gen_pdf = self.gen_mt_xlsx = self.gen_anesu_xlsx = None
             self.lbl_csv_done.config(text=""); self.lbl_pdf_done.config(text="")
             self.btn_csv.config(text="Download CSV",bg=FBC_MID)
             self.btn_pdf.config(text="Download PDF",bg=RED_DARK)
@@ -1504,15 +1529,18 @@ class SarestockPage(tk.Frame):
 
     def _ensure_email_files(self):
         if not self.gen_pdf:
-            self.gen_pdf=generate_pdf(self.raw_rows,self.raw_headers,self.out_dir)
+            self.gen_pdf = generate_pdf(self.raw_rows, self.raw_headers, self.out_dir)
             self.lbl_pdf_done.config(text=f"OK  {os.path.basename(self.gen_pdf)} saved")
         if not self.gen_mt_xlsx:
-            self.gen_mt_xlsx=generate_matched_excel(self.source_path,self.raw_rows,self.out_dir)
+            self.gen_mt_xlsx = generate_matched_excel(self.source_path, self.raw_rows, self.out_dir)
+        if not self.gen_anesu_xlsx:
+            self.gen_anesu_xlsx = generate_anesu_excel(self.raw_rows, self.out_dir)
 
     def _send_email(self):
         try:
             self._ensure_email_files()
-            open_sarestock_outlook([self.gen_pdf,self.gen_mt_xlsx], sender_name=load_sender_name())
+            open_sarestock_outlook([self.gen_pdf, self.gen_mt_xlsx, self.gen_anesu_xlsx],
+                                   sender_name=load_sender_name())
         except ImportError: messagebox.showerror("pywin32 not installed","Run:  pip install pywin32")
         except Exception as e: messagebox.showerror("Outlook Error",str(e))
 
@@ -1527,9 +1555,10 @@ class SarestockPage(tk.Frame):
             df=pd.read_csv(path,dtype=str).fillna("") if path.lower().endswith(".csv") else pd.read_excel(path,dtype=str).fillna("")
             self.raw_headers2=list(df.columns); self.raw_rows2=df.to_dict("records")
             if not self.raw_rows2: raise ValueError("File is empty.")
-            self.source_path2=path; self.conv_rows2, now = transform_rows(self.raw_rows2)
+            self.source_path2 = path;
+            self.conv_rows2, now = transform_rows(self.raw_rows2)
             tickets = [r.get("Ticket No.", "").lstrip("0") or "0" for r in self.conv_rows2]
-            self.gen_csv2=self.gen_pdf2=self.gen_mt_xlsx2=None
+            self.gen_csv2 = self.gen_pdf2 = self.gen_mt_xlsx2 = self.gen_anesu_xlsx2 = None
             self.lbl_csv2_done.config(text=""); self.lbl_pdf2_done.config(text="")
             self.btn_csv2.config(text="Download CSV",bg=FBC_MID)
             self.btn_pdf2.config(text="Download PDF",bg=RED_DARK)
@@ -1564,22 +1593,27 @@ class SarestockPage(tk.Frame):
 
     def _ensure_email_files2(self):
         if not self.gen_pdf2:
-            self.gen_pdf2=generate_pdf(self.raw_rows2,self.raw_headers2,self.out_dir)
+            self.gen_pdf2 = generate_pdf(self.raw_rows2, self.raw_headers2, self.out_dir)
             self.lbl_pdf2_done.config(text=f"OK  {os.path.basename(self.gen_pdf2)} saved")
         if not self.gen_mt_xlsx2:
-            self.gen_mt_xlsx2=generate_matched_excel(self.source_path2,self.raw_rows2,self.out_dir)
+            self.gen_mt_xlsx2 = generate_matched_excel(self.source_path2, self.raw_rows2, self.out_dir)
+        if not self.gen_anesu_xlsx2:
+            self.gen_anesu_xlsx2 = generate_anesu_excel(self.raw_rows2, self.out_dir)
 
     def _send_email2(self):
         try:
             self._ensure_email_files2()
-            open_sarestock_outlook([self.gen_pdf2,self.gen_mt_xlsx2], sender_name=load_sender_name())
+            open_sarestock_outlook([self.gen_pdf2, self.gen_mt_xlsx2, self.gen_anesu_xlsx2],
+                                   sender_name=load_sender_name())
         except ImportError: messagebox.showerror("pywin32 not installed","Run:  pip install pywin32")
         except Exception as e: messagebox.showerror("Outlook Error",str(e))
 
     def _send_email_both(self):
         try:
-            self._ensure_email_files(); self._ensure_email_files2()
-            open_sarestock_outlook([self.gen_pdf,self.gen_mt_xlsx,self.gen_pdf2,self.gen_mt_xlsx2],
+            self._ensure_email_files();
+            self._ensure_email_files2()
+            open_sarestock_outlook([self.gen_pdf, self.gen_mt_xlsx, self.gen_anesu_xlsx,
+                                    self.gen_pdf2, self.gen_mt_xlsx2, self.gen_anesu_xlsx2],
                                    sender_name=load_sender_name())
         except ImportError: messagebox.showerror("pywin32 not installed","Run:  pip install pywin32")
         except Exception as e: messagebox.showerror("Outlook Error",str(e))
