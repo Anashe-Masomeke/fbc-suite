@@ -16,7 +16,7 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 import sys, os, subprocess, urllib.request
 
-VERSION       = 28
+VERSION       = 29
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
@@ -926,11 +926,28 @@ def parse_client_name_from_pdf(pdf_path):
         if m:
             candidate = m.group(1).strip().upper()
             if _is_valid(candidate): return candidate
-        m = re.search(r'Fiscal Tax Invoice\s*\n+([^\n]{4,80})\n', text, re.IGNORECASE)
+        m = re.search(r'Fiscal Tax Invoice\s*\n+(.*?)\n(?:Deal Number|CSD Code|Custodial|Client VAT|VAT:)',
+                      text, re.IGNORECASE | re.DOTALL)
         if m:
-            candidate = m.group(1).strip().upper()
-            if _is_valid(candidate) and not re.search(r'\d{4}/\d{2}/\d{2}', candidate):
-                return candidate
+            ADDR_LINE_PATTERNS = [
+                r'^\d',
+                r'^(GROUND|\d+(ST|ND|RD|TH)?)\s*FLOOR$',
+                r'^(HARARE|BULAWAYO|MUTARE|GWERU|VICTORIA FALLS|CHITUNGWIZA|KWEKWE)$',
+                r'^P\.?\s*O\.?\s*BOX',
+                r'^DEAL DATE$',
+                r'^\d{4}/\d{2}/\d{2}$',
+                r'^\d{1,2}\s+\w+\s+\d{4}$',
+            ]
+            block_lines = [l.strip() for l in m.group(1).split('\n') if l.strip()]
+            for line in block_lines:
+                upper = line.upper()
+                if len(upper) < 4:
+                    continue
+                if re.match(r'^[\d\s/\-\.,%]+$', upper):
+                    continue
+                if any(re.match(pat, upper) for pat in ADDR_LINE_PATTERNS):
+                    continue
+                return upper
         lines = [l.strip() for l in text.split('\n') if l.strip()]
         for line in lines:
             upper = line.upper()
