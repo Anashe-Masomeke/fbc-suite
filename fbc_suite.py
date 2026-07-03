@@ -5,10 +5,10 @@ FBC Suite — Combined Desktop App
   ✉   Deal Note Email Automator    (Tab 2)
 
 Requirements:
-    pip install pandas openpyxl fpdf2 pywin32 pymupdf gspread google-auth
+pip install pandas openpyxl fpdf2 pywin32 pymupdf supabase
 
     updating new .exe file:
-    pyinstaller --onefile --noconsole fbc_suite.py --name fbc-suite
+pyinstaller --onefile --noconsole fbc_suite.py --name fbc-suite
 """
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -16,7 +16,7 @@ Requirements:
 # ════════════════════════════════════════════════════════════════════════════
 import sys, os, subprocess, urllib.request
 
-VERSION       = 29
+VERSION       = 30
 GITHUB_USER   = "Anashe-Masomeke"
 GITHUB_REPO   = "fbc-suite"
 GITHUB_BRANCH = "main"
@@ -113,76 +113,6 @@ import shutil as _shutil
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from datetime import datetime
-
-# ── Voice imports (graceful layered fallback) ────────────────────────────────
-_VOICE_READY   = False
-_sr            = None
-_tts           = None
-_whisper_model = None
-_vosk_model    = None
-_RECOGNISER    = "none"
-_fuzz          = None
-
-def _init_voice():
-    global _VOICE_READY, _sr, _tts, _fuzz, _RECOGNISER
-    try:
-        import pyttsx3
-        _tts = pyttsx3.init()
-        _tts.setProperty("rate", 165)
-    except Exception:
-        pass
-    try:
-        import speech_recognition as sr
-        _sr = sr
-    except ImportError:
-        return
-    try:
-        import whisper as _w
-        _RECOGNISER = "whisper"
-    except ImportError:
-        pass
-    if _RECOGNISER == "none":
-        try:
-            import vosk as _v  # noqa: F401
-            _RECOGNISER = "vosk"
-        except ImportError:
-            pass
-    if _RECOGNISER == "none":
-        _RECOGNISER = "google"
-    try:
-        from rapidfuzz import process as rfp, fuzz as rff
-        _fuzz = (rfp, rff)
-    except ImportError:
-        pass
-    _VOICE_READY = True
-
-threading.Thread(target=_init_voice, daemon=True).start()
-
-_whisper_lock = threading.Lock()
-
-def _get_whisper():
-    global _whisper_model
-    with _whisper_lock:
-        if _whisper_model is None:
-            import whisper
-            _whisper_model = whisper.load_model("base.en")
-    return _whisper_model
-
-_vosk_lock = threading.Lock()
-_VOSK_MODEL_PATH = os.path.join(os.path.expanduser("~"), "vosk-model-small-en-us-0.15")
-
-def _get_vosk():
-    global _vosk_model
-    with _vosk_lock:
-        if _vosk_model is None:
-            import vosk
-            if not os.path.isdir(_VOSK_MODEL_PATH):
-                raise FileNotFoundError(
-                    f"Vosk model not found at:\n{_VOSK_MODEL_PATH}\n\n"
-                    "Download from: alphacephei.com/vosk/models\n"
-                    "Extract to your home folder.")
-            _vosk_model = vosk.Model(_VOSK_MODEL_PATH)
-    return _vosk_model
 
 def _require(pkg, install_name=None):
     import importlib
@@ -714,76 +644,59 @@ def save_sender_name(name):
         f.write(name.strip())
 
 SYNC_CONFIG_FILE = os.path.join(os.path.expanduser("~"), ".fbc_sync_config.json")
-SHEET_WORKSHEET  = "Contacts"
+SUPABASE_TABLE   = "fbc_clients"
 
 def _load_sync_config():
     try:
         with open(SYNC_CONFIG_FILE) as f:
             return json.load(f)
     except Exception:
-        return {"sheet_id": "", "service_account_path": ""}
+        return {"supabase_url": "", "supabase_key": ""}
 
 def _save_sync_config(cfg):
     with open(SYNC_CONFIG_FILE, "w") as f:
         json.dump(cfg, f, indent=2)
 
-def _get_gsheet():
+def _get_supabase():
     try:
-        import gspread
-        from google.oauth2.service_account import Credentials
+        from supabase import create_client
     except ImportError:
-        return None, "gspread not installed. Run: pip install gspread google-auth"
+        return None, "supabase package not installed. Run: pip install supabase"
     cfg = _load_sync_config()
-    sa_path  = cfg.get("service_account_path", "")
-    sheet_id = cfg.get("sheet_id", "")
-    if not sa_path or not sheet_id:
+    url = cfg.get("supabase_url", "")
+    key = cfg.get("supabase_key", "")
+    if not url or not key:
         return None, "sync_not_configured"
-    if not os.path.exists(sa_path):
-        return None, f"Service account file not found:\n{sa_path}"
     try:
-        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-        creds  = Credentials.from_service_account_file(sa_path, scopes=scopes)
-        gc     = gspread.authorize(creds)
-        sh     = gc.open_by_key(sheet_id)
-        try:
-            ws = sh.worksheet(SHEET_WORKSHEET)
-        except Exception:
-            ws = sh.add_worksheet(title=SHEET_WORKSHEET, rows=500, cols=2)
-            ws.append_row(["Name", "Email"])
-        return ws, None
+        return create_client(url, key), None
     except Exception as e:
         return None, str(e)
 
 def push_contacts_to_sheet(contacts):
-    ws, err = _get_gsheet()
-    if ws is None:
+    client, err = _get_supabase()
+    if client is None:
         return False, err
     try:
-        rows = [["Name", "Email"]]
-        for name, data in sorted(contacts.items()):
-            rows.append([name, data.get("email", "")])
-        ws.clear()
-        ws.update(range_name="A1", values=rows)
-        return True, f"Synced {len(contacts)} contacts to Google Sheets"
+        rows = [{"name": name, "email": data.get("email", "")}
+                for name, data in contacts.items()]
+        if rows:
+            client.table(SUPABASE_TABLE).upsert(rows, on_conflict="name").execute()
+        return True, f"Synced {len(contacts)} contacts to Supabase"
     except Exception as e:
         return False, str(e)
 
 def pull_contacts_from_sheet():
-    ws, err = _get_gsheet()
-    if ws is None:
+    client, err = _get_supabase()
+    if client is None:
         return None, err
     try:
-        all_rows = ws.get_all_values()
-        if not all_rows:
-            return {}, "Sheet is empty"
-        data_rows = all_rows[1:] if all_rows[0] == ["Name", "Email"] else all_rows
+        resp = client.table(SUPABASE_TABLE).select("name, email").execute()
         contacts = {}
-        for row in data_rows:
-            if len(row) >= 1 and row[0].strip():
-                name  = row[0].strip().upper()
-                email = row[1].strip() if len(row) > 1 else ""
-                contacts[name] = {"email": email}
-        return contacts, f"Loaded {len(contacts)} contacts from Google Sheets"
+        for row in (resp.data or []):
+            name = (row.get("name") or "").strip().upper()
+            if name:
+                contacts[name] = {"email": row.get("email", "") or ""}
+        return contacts, f"Loaded {len(contacts)} contacts from Supabase"
     except Exception as e:
         return None, str(e)
 
@@ -874,7 +787,7 @@ def load_contacts():
     except Exception:
         local = {}
     cfg = _load_sync_config()
-    if cfg.get("sheet_id") and cfg.get("service_account_path"):
+    if cfg.get("supabase_url") and cfg.get("supabase_key"):
         try:
             sheet_contacts, err = pull_contacts_from_sheet()
             if sheet_contacts is not None and sheet_contacts:
@@ -1019,13 +932,12 @@ class ContactsDialog(tk.Toplevel):
         tk.Button(hdr,text="☁ Setup Sync",command=self._setup_sync,
                   bg=FBC_ACCENT,fg=WHITE,relief="flat",font=("Segoe UI",8,"bold"),
                   cursor="hand2",padx=8,pady=3).pack(side="right",padx=(0,4))
-        tk.Button(hdr,text="⬆ Push to Sheet",command=self._push_to_sheet,
-                  bg="#1A6B3A",fg=WHITE,relief="flat",font=("Segoe UI",8,"bold"),
-                  cursor="hand2",padx=8,pady=3).pack(side="right",padx=(0,4))
-        tk.Button(hdr,text="⬇ Pull from Sheet",command=self._pull_from_sheet,
-                  bg="#1A3A6B",fg=WHITE,relief="flat",font=("Segoe UI",8,"bold"),
-                  cursor="hand2",padx=8,pady=3).pack(side="right",padx=(0,8))
-
+        tk.Button(hdr, text="⬆ Push to Supabase", command=self._push_to_sheet,
+                  bg="#1A6B3A", fg=WHITE, relief="flat", font=("Segoe UI", 8, "bold"),
+                  cursor="hand2", padx=8, pady=3).pack(side="right", padx=(0, 4))
+        tk.Button(hdr, text="⬇ Pull from Supabase", command=self._pull_from_sheet,
+                  bg="#1A3A6B", fg=WHITE, relief="flat", font=("Segoe UI", 8, "bold"),
+                  cursor="hand2", padx=8, pady=3).pack(side="right", padx=(0, 8))
         body=tk.Frame(self,bg=BG); body.pack(fill="both",expand=True,padx=12,pady=10)
         left=tk.Frame(body,bg=WHITE,relief="flat",bd=1); left.pack(side="left",fill="y",padx=(0,8))
         tk.Label(left,text="Clients",bg=FBC_MID,fg=WHITE,
@@ -1125,10 +1037,16 @@ class ContactsDialog(tk.Toplevel):
         self._filter_list(); self._show_detail(new_name)
         messagebox.showinfo("Renamed",f"'{old_name}' renamed.\n\nClick 'Save & Close' to keep this change.",parent=self)
 
-    def _apply(self,name):
-        self.contacts[name]={"email":self.entry_email.get().strip()}
+    def _apply(self, name):
+        self.contacts[name] = {"email": self.entry_email.get().strip()}
+        save_contacts(self.contacts)
+
+        def _push():
+            push_contacts_to_sheet(self.contacts)
+
+        threading.Thread(target=_push, daemon=True).start()
         self._show_detail(name)
-        messagebox.showinfo("Saved",f"Email saved for {name}.\nClick 'Save & Close' to write to disk.",parent=self)
+        messagebox.showinfo("Saved", f"Email saved for {name} and synced.", parent=self)
 
     def _add(self):
         dlg=tk.Toplevel(self); dlg.title("Add Client")
@@ -1136,77 +1054,105 @@ class ContactsDialog(tk.Toplevel):
         tk.Label(dlg,text="Client name (as it appears in the filename):",
                  bg=BG,font=("Segoe UI",9)).pack(pady=(14,4),padx=12)
         e=tk.Entry(dlg,font=("Segoe UI",10),width=34); e.pack(padx=12); e.focus()
+
         def ok():
-            n=e.get().strip().upper()
+            n = e.get().strip().upper()
             if not n: return
             if n in self.contacts:
-                messagebox.showwarning("Duplicate",f"'{n}' already exists.",parent=dlg); return
-            self.contacts[n]={"email":""}
-            self._current_name=n
-            self._filter_list(); dlg.destroy(); self._show_detail(n)
+                messagebox.showwarning("Duplicate", f"'{n}' already exists.", parent=dlg);
+                return
+            self.contacts[n] = {"email": ""}
+            save_contacts(self.contacts)
+
+            def _push():
+                push_contacts_to_sheet(self.contacts)
+
+            threading.Thread(target=_push, daemon=True).start()
+            self._current_name = n
+            self._filter_list();
+            dlg.destroy();
+            self._show_detail(n)
         e.bind("<Return>",lambda _:ok())
         tk.Button(dlg,text="Add",command=ok,bg=FBC_MID,fg=WHITE,
                   relief="flat",font=("Segoe UI",9,"bold"),cursor="hand2",
                   padx=12,pady=6).pack(pady=10)
 
     def _delete(self):
-        sel=self.listbox.curselection()
+        sel = self.listbox.curselection()
         if not sel: return
-        name=self.listbox.get(sel[0])
-        if messagebox.askyesno("Delete",f"Delete '{name}' from contacts?",parent=self):
-            self.contacts.pop(name,None); self._current_name=None
-            self._filter_list(); self._show_detail(None)
+        name = self.listbox.get(sel[0])
+        if messagebox.askyesno("Delete", f"Delete '{name}' from contacts?", parent=self):
+            self.contacts.pop(name, None);
+            self._current_name = None
+            save_contacts(self.contacts)
+
+            def _push():
+                client, err = _get_supabase()
+                if client is not None:
+                    try:
+                        client.table(SUPABASE_TABLE).delete().eq("name", name).execute()
+                    except Exception:
+                        pass
+
+            threading.Thread(target=_push, daemon=True).start()
+            self._filter_list();
+            self._show_detail(None)
 
     def _setup_sync(self):
         cfg = _load_sync_config()
-        dlg = tk.Toplevel(self); dlg.title("Setup Google Sheets Sync")
-        dlg.geometry("540x280"); dlg.configure(bg=BG); dlg.grab_set()
-        tk.Label(dlg,text="Google Sheets Sync Setup",bg=FBC_DARK,fg=WHITE,
-                 font=("Segoe UI",11,"bold"),pady=10,padx=14).pack(fill="x")
-        body=tk.Frame(dlg,bg=BG,padx=16,pady=12); body.pack(fill="both",expand=True)
-        tk.Label(body,text="Google Sheet ID (from the URL):",bg=BG,
-                 font=("Segoe UI",9,"bold")).pack(anchor="w")
-        e_sheet=tk.Entry(body,font=("Segoe UI",9),width=60)
-        e_sheet.insert(0,cfg.get("sheet_id",""))
-        e_sheet.pack(anchor="w",pady=(2,10),fill="x")
-        tk.Label(body,text="Service Account JSON file path:",bg=BG,
-                 font=("Segoe UI",9,"bold")).pack(anchor="w")
-        path_row=tk.Frame(body,bg=BG); path_row.pack(fill="x",pady=(2,4))
-        e_path=tk.Entry(path_row,font=("Segoe UI",9),width=48)
-        e_path.insert(0,cfg.get("service_account_path",""))
-        e_path.pack(side="left",fill="x",expand=True)
-        def browse():
-            p=filedialog.askopenfilename(title="Select Service Account JSON",
-                filetypes=[("JSON","*.json"),("All","*.*")])
-            if p: e_path.delete(0,tk.END); e_path.insert(0,p)
-        tk.Button(path_row,text="Browse...",command=browse,bg=FBC_MID,fg=WHITE,
-                  relief="flat",font=("Segoe UI",8),cursor="hand2",padx=6).pack(side="left",padx=4)
-        tk.Label(body,text="See SYNC_SETUP_GUIDE.txt for step-by-step instructions.",
-                 bg=BG,fg="#607080",font=("Segoe UI",8)).pack(anchor="w",pady=(4,0))
+        dlg = tk.Toplevel(self);
+        dlg.title("Setup Supabase Sync")
+        dlg.geometry("540x220");
+        dlg.configure(bg=BG);
+        dlg.grab_set()
+        tk.Label(dlg, text="Supabase Sync Setup", bg=FBC_DARK, fg=WHITE,
+                 font=("Segoe UI", 11, "bold"), pady=10, padx=14).pack(fill="x")
+        body = tk.Frame(dlg, bg=BG, padx=16, pady=12);
+        body.pack(fill="both", expand=True)
+
+        tk.Label(body, text="Supabase Project URL:", bg=BG,
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        e_url = tk.Entry(body, font=("Segoe UI", 9), width=60)
+        e_url.insert(0, cfg.get("supabase_url", ""))
+        e_url.pack(anchor="w", pady=(2, 10), fill="x")
+
+        tk.Label(body, text="Supabase API Key (anon or service_role):", bg=BG,
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        e_key = tk.Entry(body, font=("Segoe UI", 9), width=60, show="●")
+        e_key.insert(0, cfg.get("supabase_key", ""))
+        e_key.pack(anchor="w", pady=(2, 4), fill="x")
+
+        tk.Label(body, text="Found in Supabase: Project Settings → API.",
+                 bg=BG, fg="#607080", font=("Segoe UI", 8)).pack(anchor="w", pady=(4, 0))
+
         def save_cfg():
-            _save_sync_config({"sheet_id":e_sheet.get().strip(),
-                               "service_account_path":e_path.get().strip()})
-            messagebox.showinfo("Saved","Sync configuration saved.",parent=dlg)
+            _save_sync_config({"supabase_url": e_url.get().strip(),
+                               "supabase_key": e_key.get().strip()})
+            messagebox.showinfo("Saved", "Sync configuration saved.", parent=dlg)
             dlg.destroy()
-        tk.Button(body,text="Save Configuration",command=save_cfg,
-                  bg=FBC_MID,fg=WHITE,relief="flat",font=("Segoe UI",9,"bold"),
-                  cursor="hand2",padx=12,pady=6).pack(anchor="w",pady=(12,0))
+
+        tk.Button(body, text="Save Configuration", command=save_cfg,
+                  bg=FBC_MID, fg=WHITE, relief="flat", font=("Segoe UI", 9, "bold"),
+                  cursor="hand2", padx=12, pady=6).pack(anchor="w", pady=(12, 0))
 
     def _push_to_sheet(self):
         ok, msg = push_contacts_to_sheet(self.contacts)
-        if ok: messagebox.showinfo("Sync", msg, parent=self)
+        if ok:
+            messagebox.showinfo("Sync", msg, parent=self)
         elif msg == "sync_not_configured":
             messagebox.showwarning("Not Configured",
-                "Sync is not set up yet.\nClick 'Setup Sync' to configure.", parent=self)
-        else: messagebox.showerror("Sync Error", msg, parent=self)
+                                   "Sync is not set up yet.\nClick 'Setup Sync' to configure.", parent=self)
+        else:
+            messagebox.showerror("Sync Error", msg, parent=self)
 
     def _pull_from_sheet(self):
         contacts, msg = pull_contacts_from_sheet()
         if contacts is None:
             if msg == "sync_not_configured":
                 messagebox.showwarning("Not Configured",
-                    "Sync is not set up yet.\nClick 'Setup Sync' to configure.", parent=self)
-            else: messagebox.showerror("Sync Error", msg, parent=self)
+                                       "Sync is not set up yet.\nClick 'Setup Sync' to configure.", parent=self)
+            else:
+                messagebox.showerror("Sync Error", msg, parent=self)
             return
         self.contacts.update(contacts)
         save_contacts(self.contacts)
@@ -1216,14 +1162,16 @@ class ContactsDialog(tk.Toplevel):
     def _save(self):
         save_contacts(self.contacts)
         self.on_save(self.contacts)
+
         def _push():
             ok, msg = push_contacts_to_sheet(self.contacts)
-            if ok: print(f"[Sync] {msg}")
-            elif msg and msg != "sync_not_configured": print(f"[Sync error] {msg}")
+            if ok:
+                print(f"[Sync] {msg}")
+            elif msg and msg != "sync_not_configured":
+                print(f"[Sync error] {msg}")
+
         threading.Thread(target=_push, daemon=True).start()
         self.destroy()
-
-
 # ════════════════════════════════════════════════════════════════════════════
 #  SARESTOCK PAGE
 # ════════════════════════════════════════════════════════════════════════════
@@ -2148,102 +2096,6 @@ class EmailerPage(tk.Frame):
         self.after(0,self._render_client_tab)
         self.after(0,lambda:self.lbl_found.config(text=f"  {total} PDF(s) loaded"))
 
-
-# ════════════════════════════════════════════════════════════════════════════
-#  VOICE ENGINE
-# ════════════════════════════════════════════════════════════════════════════
-_tts_lock = threading.Lock()
-
-def speak(text: str):
-    if not _VOICE_READY or _tts is None:
-        return
-    def _run():
-        with _tts_lock:
-            try:
-                _tts.say(text); _tts.runAndWait()
-            except Exception:
-                pass
-    threading.Thread(target=_run, daemon=True).start()
-
-
-class VoiceBar(tk.Frame):
-    MIC_IDLE   = ("🎤  Hold to speak", FBC_MID,   WHITE)
-    MIC_LISTEN = ("🔴  Listening…",   "#B71C1C",  WHITE)
-    MIC_THINK  = ("⏳  Processing…",  "#555555",  WHITE)
-    MIC_NODEPS = ("🎤  Voice (install deps)", "#2A4A6A", SIDEBAR_TEXT)
-
-    def __init__(self, parent, dispatch_cb, hotkey_widget=None):
-        super().__init__(parent, bg=SIDEBAR_BG)
-        self._cb     = dispatch_cb
-        self._active = False
-        self._build()
-        if hotkey_widget:
-            hotkey_widget.bind_all("<Control-space>", lambda e: self._toggle())
-
-    def _build(self):
-        tk.Frame(self, bg=FBC_MID, height=1).pack(fill="x", padx=10, pady=(8,4))
-        tk.Label(self, text="VOICE ASSISTANT", bg=SIDEBAR_BG,
-                 fg="#2A4A6A", font=("Segoe UI",7,"bold")).pack()
-        self.btn = tk.Button(
-            self,
-            text=self.MIC_IDLE[0]   if _VOICE_READY else self.MIC_NODEPS[0],
-            bg=self.MIC_IDLE[1]     if _VOICE_READY else self.MIC_NODEPS[1],
-            fg=self.MIC_IDLE[2]     if _VOICE_READY else self.MIC_NODEPS[2],
-            relief="flat", font=("Segoe UI",9,"bold"),
-            cursor="hand2" if _VOICE_READY else "arrow",
-            padx=6, pady=10, wraplength=170,
-            command=self._toggle if _VOICE_READY else self._show_install,
-        )
-        self.btn.pack(fill="x", padx=10, pady=4)
-        self.lbl_heard = tk.Label(self, text="", bg=SIDEBAR_BG, fg="#90CAF9",
-                                  font=("Segoe UI",8), wraplength=170, justify="left")
-        self.lbl_heard.pack(fill="x", padx=10)
-        tk.Label(self, text="Ctrl+Space to activate",
-                 bg=SIDEBAR_BG, fg="#2A4A6A", font=("Segoe UI",7)).pack(pady=(2,6))
-
-    def _set_state(self, s):
-        self.btn.config(text=s[0], bg=s[1], fg=s[2])
-
-    def _show_install(self):
-        messagebox.showinfo("Voice — Install Required",
-            "To enable voice control, open a terminal and run:\n\n"
-            "  pip install SpeechRecognition pyttsx3 pyaudio\n\n"
-            "If pyaudio fails:\n"
-            "  pip install pipwin\n"
-            "  pipwin install pyaudio\n\n"
-            "Then restart FBC Suite.")
-
-    def _toggle(self):
-        if self._active: return
-        self._active = True
-        self._set_state(self.MIC_LISTEN)
-        threading.Thread(target=self._listen, daemon=True).start()
-
-    def _listen(self):
-        r = _sr.Recognizer(); mic = _sr.Microphone(); text = ""
-        try:
-            with mic as source:
-                r.adjust_for_ambient_noise(source, duration=0.3)
-                audio = r.listen(source, timeout=6, phrase_time_limit=8)
-            self.after(0, lambda: self._set_state(self.MIC_THINK))
-            text = r.recognize_google(audio).lower().strip()
-        except _sr.WaitTimeoutError: text = ""
-        except _sr.UnknownValueError: text = ""
-        except Exception as exc:
-            text = ""
-            self.after(0, lambda: self.lbl_heard.config(text=f"Error: {exc}"))
-        finally:
-            self._active = False
-            self.after(0, lambda: self._set_state(self.MIC_IDLE))
-        if text:
-            self.after(0, lambda t=text: self._on_heard(t))
-
-    def _on_heard(self, text: str):
-        self.lbl_heard.config(text=f'"{text}"')
-        self._cb(text)
-        self.after(6000, lambda: self.lbl_heard.config(text=""))
-
-
 # ════════════════════════════════════════════════════════════════════════════
 #  MAIN APP SHELL
 # ════════════════════════════════════════════════════════════════════════════
@@ -2281,10 +2133,8 @@ class App(tk.Tk):
             btn.bind("<Leave>", lambda e,b=btn,k=key: b.config(
                 bg=SIDEBAR_ACTIVE if self._active_page==k else SIDEBAR_BG))
             self.nav_buttons[key] = btn
-        self.voice_bar = VoiceBar(sidebar, self._voice_dispatch, hotkey_widget=self)
-        self.voice_bar.pack(side="bottom", fill="x")
         tk.Label(sidebar, text=f"v{VERSION}", bg=SIDEBAR_BG, fg="#2A4A6A",
-                 font=("Segoe UI",8)).pack(side="bottom", pady=4)
+                 font=("Segoe UI", 8)).pack(side="bottom", pady=4)
         self.content = tk.Frame(self, bg=BG)
         self.content.pack(side="left", fill="both", expand=True)
         self.pages = {
@@ -2293,65 +2143,6 @@ class App(tk.Tk):
         }
         self._switch("converter")
 
-    def _voice_dispatch(self, text: str):
-        t = text.lower()
-        if any(w in t for w in ("converter","convert","sarestock","first tab")):
-            self._switch("converter"); speak("Switched to Converter."); return
-        if any(w in t for w in ("email","emailer","deal note","second tab")):
-            self._switch("emailer"); speak("Switched to Deal Note Emailer."); return
-        conv = self.pages["converter"]
-        if any(w in t for w in ("browse","upload file","load file","open file","first exchange","pick file")):
-            self._switch("converter"); speak("Opening file browser."); conv._pick_file(); return
-        if any(w in t for w in ("second exchange","second file","upload second","load second","vfex file","pick second")):
-            self._switch("converter"); speak("Opening second file browser."); conv._pick_file2(); return
-        if any(w in t for w in ("download csv","save csv","get csv")):
-            self._switch("converter")
-            if conv.conv_rows: speak("Downloading CSV."); conv._dl_csv()
-            elif conv.conv_rows2: speak("Downloading second CSV."); conv._dl_csv2()
-            else: speak("No file loaded yet.")
-            return
-        if any(w in t for w in ("download pdf","save pdf","get pdf")):
-            self._switch("converter")
-            if conv.conv_rows: speak("Downloading PDF."); conv._dl_pdf()
-            elif conv.conv_rows2: speak("Downloading second PDF."); conv._dl_pdf2()
-            else: speak("No file loaded yet.")
-            return
-        if any(w in t for w in ("send zse","send z s e","zse email")):
-            self._switch("converter"); speak("Opening ZSE email."); conv._send_email(); return
-        if any(w in t for w in ("send vfex","vfex email")):
-            self._switch("converter"); speak("Opening VFEX email."); conv._send_email2(); return
-        if any(w in t for w in ("send both","both emails","zse and vfex","send everything converter")):
-            self._switch("converter"); speak("Opening combined email."); conv._send_email_both(); return
-        if any(w in t for w in ("clear converter","clear uploads converter")):
-            self._switch("converter"); speak("Clearing converter uploads."); conv._clear_uploads(); return
-        em = self.pages["emailer"]
-        if any(w in t for w in ("load folder","pick folder","open folder","select folder","load pdfs","browse folder")):
-            self._switch("emailer"); speak("Opening folder browser."); em._pick_folder(); return
-        if any(w in t for w in ("load files","pick files","individual files","select files","browse files")):
-            self._switch("emailer"); speak("Opening file picker."); em._pick_individual_files(); return
-        if any(w in t for w in ("send all custodian","custodian emails","send custodians","all custodians")):
-            self._switch("emailer"); speak("Sending all custodian emails."); em._cust_send_all(); return
-        if any(w in t for w in ("send all client","client emails","send clients","all clients")):
-            self._switch("emailer"); speak("Sending all client emails."); em._client_send_all(); return
-        if any(w in t for w in ("send everything","send all emails","send all","everything")):
-            self._switch("emailer"); speak("Sending everything."); em._send_everything(); return
-        if any(w in t for w in ("manage contacts","contacts","open contacts")):
-            self._switch("emailer"); speak("Opening contacts."); em._open_contacts(); return
-        if any(w in t for w in ("clear emailer","clear deal","clear files emailer")):
-            self._switch("emailer"); speak("Clearing loaded files."); em._clear_uploads(); return
-        if any(w in t for w in ("help","commands","what can you do","what can i say")):
-            speak("You can say: switch to converter, switch to emailer, browse file, download CSV, "
-                  "download PDF, send ZSE, send VFEX, send both, load folder, send all custodians, "
-                  "send all clients, send everything, manage contacts, or reset counter.")
-            _VoiceHelpDialog(self); return
-        if any(w in t for w in ("status","how many","how many files","what's loaded")):
-            parts = []
-            if conv.conv_rows: parts.append(f"{len(conv.conv_rows)} rows in first exchange")
-            if conv.conv_rows2: parts.append(f"{len(conv.conv_rows2)} rows in second exchange")
-            if em.deal_items: parts.append(f"{len(em.deal_items)} deal notes loaded")
-            speak((", ".join(parts)+".") if parts else "Nothing loaded yet."); return
-        speak("Sorry, I didn't catch that. Say 'help' for a list of commands.")
-
     def _switch(self, key):
         for page in self.pages.values(): page.pack_forget()
         self.pages[key].pack(fill="both", expand=True)
@@ -2359,46 +2150,6 @@ class App(tk.Tk):
         for k, btn in self.nav_buttons.items():
             btn.config(bg=SIDEBAR_ACTIVE if k==key else SIDEBAR_BG,
                        fg=WHITE         if k==key else SIDEBAR_TEXT)
-
-
-class _VoiceHelpDialog(tk.Toplevel):
-    COMMANDS = [
-        ("Navigation",        ["switch to converter", "switch to emailer"]),
-        ("Converter",         ["browse file / second file","download CSV / PDF",
-                               "send ZSE / send VFEX / send both",
-                               "reset counter","clear converter"]),
-        ("Deal Note Emailer", ["load folder / load files","send all custodians",
-                               "send all clients","send everything",
-                               "manage contacts","clear emailer"]),
-        ("General",           ["status — how many files loaded",
-                               "help — show this dialog",
-                               "Ctrl+Space — activate mic anywhere"]),
-    ]
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.title("Voice Commands — FBC Suite")
-        self.configure(bg=SIDEBAR_BG)
-        self.resizable(False, False)
-        self.grab_set()
-        tk.Label(self, text="🎤  Voice Commands", bg=FBC_ACCENT, fg=WHITE,
-                 font=("Segoe UI",12,"bold"), pady=10).pack(fill="x")
-        body = tk.Frame(self, bg=SIDEBAR_BG, padx=20, pady=14)
-        body.pack(fill="both", expand=True)
-        for section, cmds in self.COMMANDS:
-            tk.Label(body, text=section.upper(), bg=SIDEBAR_BG, fg=FBC_ACCENT,
-                     font=("Segoe UI",8,"bold")).pack(anchor="w", pady=(8,2))
-            for c in cmds:
-                tk.Label(body, text=f"  • {c}", bg=SIDEBAR_BG, fg=SIDEBAR_TEXT,
-                         font=("Segoe UI",9)).pack(anchor="w")
-        tk.Button(self, text="Close", command=self.destroy,
-                  bg=FBC_MID, fg=WHITE, relief="flat",
-                  font=("Segoe UI",10,"bold"), pady=8, cursor="hand2").pack(
-                      fill="x", padx=20, pady=14)
-        self.update_idletasks()
-        w, h = 360, self.winfo_reqheight()
-        x = parent.winfo_x() + (parent.winfo_width()  - w) // 2
-        y = parent.winfo_y() + (parent.winfo_height() - h) // 2
-        self.geometry(f"{w}x{h}+{x}+{y}")
 
 
 # ════════════════════════════════════════════════════════════════════════════
